@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
@@ -12,7 +13,8 @@ function StatusIcon({ status }) {
 function ImageMessage({ content, fileName }) {
   return (
     <div className="media-msg">
-      <img src={content} alt={fileName || 'image'} className="chat-image" onClick={() => window.open(content, '_blank')} />
+      <img src={content} alt={fileName || 'image'} className="chat-image"
+        onClick={() => window.open(content, '_blank')} />
       {fileName && <span className="file-name">{fileName}</span>}
     </div>
   );
@@ -41,20 +43,14 @@ function FileMessage({ content, fileName, fileSize }) {
   );
 }
 
-// Renders text with @mentions highlighted
 function MentionText({ content, currentUsername }) {
   const parts = content.split(/(@\w+)/g);
   return (
     <p className="bubble-text">
       {parts.map((part, i) => {
         if (part.startsWith('@')) {
-          const mentioned = part.slice(1);
-          const isMe = mentioned === currentUsername;
-          return (
-            <span key={i} className={`mention-tag ${isMe ? 'mention-me' : ''}`}>
-              {part}
-            </span>
-          );
+          const isMe = part.slice(1) === currentUsername;
+          return <span key={i} className={`mention-tag ${isMe ? 'mention-me' : ''}`}>{part}</span>;
         }
         return part;
       })}
@@ -71,7 +67,7 @@ function ReactionBar({ reactions = {}, username, onToggle }) {
         <button
           key={emoji}
           className={`reaction-pill ${users.includes(username) ? 'reacted' : ''}`}
-          onClick={() => onToggle(emoji)}
+          onClick={(e) => { e.stopPropagation(); onToggle(emoji); }}
           title={users.join(', ')}
         >
           {emoji} <span>{users.length}</span>
@@ -81,83 +77,168 @@ function ReactionBar({ reactions = {}, username, onToggle }) {
   );
 }
 
-function ReactionPicker({ onPick, onClose }) {
+// Rendered into document.body via portal — never clipped by overflow:auto
+function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin, onClose }) {
   const ref = useRef(null);
+  const [pos, setPos] = useState({ x, y });
+
   useEffect(() => {
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    setPos({
+      x: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)),
+    });
+  }, [x, y]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    const t = setTimeout(() => {
+      document.addEventListener('mousedown', handler);
+      document.addEventListener('touchstart', handler);
+    }, 80);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
   }, [onClose]);
 
-  return (
-    <div ref={ref} className="reaction-picker">
-      {REACTION_EMOJIS.map(e => (
-        <button key={e} className="reaction-pick-btn" onClick={() => { onPick(e); onClose(); }}>{e}</button>
-      ))}
-    </div>
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      ref={ref}
+      className="context-menu"
+      style={{ position: 'fixed', zIndex: 9999, top: pos.y, left: pos.x }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <button className="ctx-btn" onMouseDown={() => { onReact(); onClose(); }}>😊 Add reaction</button>
+      <button className="ctx-btn" onMouseDown={() => { onPin(); onClose(); }}>
+        {isPinned ? '📌 Unpin message' : '📌 Pin message'}
+      </button>
+      {isSelf && <button className="ctx-btn" onMouseDown={() => { onEdit(); onClose(); }}>✏️ Edit message</button>}
+      {isSelf && <button className="ctx-btn danger" onMouseDown={() => { onDelete(); onClose(); }}>🗑 Delete message</button>}
+    </div>,
+    document.body
   );
 }
 
-function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin, onClose }) {
+// Quick emoji picker shown above a message row
+function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
   const ref = useRef(null);
+
   useEffect(() => {
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    setTimeout(() => document.addEventListener('mousedown', h), 0);
-    return () => document.removeEventListener('mousedown', h);
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    const t = setTimeout(() => {
+      document.addEventListener('mousedown', handler);
+      document.addEventListener('touchstart', handler);
+    }, 80);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
   }, [onClose]);
 
-  // Clamp to viewport
-  const style = { position: 'fixed', zIndex: 300, top: y, left: x };
+  if (!anchorRect || typeof document === 'undefined') return null;
 
-  return (
-    <div ref={ref} className="context-menu" style={style}>
-      <button className="ctx-btn" onClick={onReact}>😊 Add reaction</button>
-      <button className="ctx-btn" onClick={onPin}>{isPinned ? '📌 Unpin' : '📌 Pin message'}</button>
-      {isSelf && <button className="ctx-btn" onClick={onEdit}>✏️ Edit message</button>}
-      {isSelf && <button className="ctx-btn danger" onClick={onDelete}>🗑 Delete</button>}
-    </div>
+  const pickerWidth = 252; // 6 emojis × 36px + padding
+  const top = Math.max(8, anchorRect.top - 52);
+  const left = isSelf
+    ? Math.max(8, anchorRect.right - pickerWidth)
+    : Math.min(anchorRect.left, window.innerWidth - pickerWidth - 8);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="quick-reaction-picker"
+      style={{ position: 'fixed', zIndex: 9999, top, left }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {REACTION_EMOJIS.map(e => (
+        <button key={e} className="quick-reaction-btn" onMouseDown={() => { onPick(e); onClose(); }}>
+          {e}
+        </button>
+      ))}
+    </div>,
+    document.body
   );
 }
 
 function EditBubble({ initialContent, onSave, onCancel }) {
   const [value, setValue] = useState(initialContent);
   const ref = useRef(null);
-  useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
 
-  const handleKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSave(value.trim()); }
-    if (e.key === 'Escape') onCancel();
-  };
+  useEffect(() => {
+    if (!ref.current) return;
+    ref.current.focus();
+    const len = ref.current.value.length;
+    ref.current.setSelectionRange(len, len);
+  }, []);
+
+  const save = () => { if (value.trim()) onSave(value.trim()); };
 
   return (
-    <div className="edit-bubble">
+    <div className="edit-bubble" onMouseDown={(e) => e.stopPropagation()}>
       <textarea
         ref={ref}
         className="edit-input"
         value={value}
         onChange={e => setValue(e.target.value)}
-        onKeyDown={handleKey}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+          if (e.key === 'Escape') onCancel();
+        }}
         rows={2}
       />
       <div className="edit-actions">
-        <button className="edit-save-btn" onClick={() => onSave(value.trim())}>Save</button>
-        <button className="edit-cancel-btn" onClick={onCancel}>Cancel</button>
-        <span className="edit-hint">Enter to save · Esc to cancel</span>
+        <button className="edit-save-btn" onMouseDown={(e) => { e.stopPropagation(); save(); }}>Save</button>
+        <button className="edit-cancel-btn" onMouseDown={(e) => { e.stopPropagation(); onCancel(); }}>Cancel</button>
+        <span className="edit-hint">Enter · Esc to cancel</span>
       </div>
     </div>
   );
 }
 
-export default function MessageList({ messages, username, pinnedMessages = [], onDeleteMessage, onEditMessage, onToggleReaction, onPinMessage, searchQuery }) {
+export default function MessageList({
+  messages, username, pinnedMessages = [],
+  onDeleteMessage, onEditMessage, onToggleReaction, onPinMessage,
+  searchQuery,
+}) {
   const bottomRef = useRef(null);
-  const [contextMenu, setContextMenu] = useState(null);
-  const [reactionPickerFor, setReactionPickerFor] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, msg }
+  const [reactionPicker, setReactionPicker] = useState(null); // { anchorRect, msg }
   const [editingId, setEditingId] = useState(null);
   const [showPinned, setShowPinned] = useState(false);
 
   useEffect(() => {
-    if (!searchQuery) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, searchQuery]);
+    if (!searchQuery) {
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    }
+  }, [messages.length, searchQuery]);
+
+  const closeAll = useCallback(() => {
+    setContextMenu(null);
+    setReactionPicker(null);
+  }, []);
+
+  const openContextMenu = useCallback((e, msg) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setReactionPicker(null);
+    setContextMenu({ x: e.clientX, y: e.clientY, msg });
+  }, []);
+
+  const openReactionPicker = useCallback((e, msg) => {
+    e.stopPropagation();
+    setContextMenu(null);
+    const row = e.currentTarget.closest?.('.msg-wrapper') ?? e.currentTarget;
+    setReactionPicker({ anchorRect: row.getBoundingClientRect(), msg });
+  }, []);
 
   const formatTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const formatDate = (ts) => {
@@ -168,85 +249,78 @@ export default function MessageList({ messages, username, pinnedMessages = [], o
     return d.toLocaleDateString();
   };
 
-  const handleContextMenu = (e, msg) => {
-    e.preventDefault();
-    setReactionPickerFor(null);
-    // Clamp to viewport
-    const x = Math.min(e.clientX, window.innerWidth - 200);
-    const y = Math.min(e.clientY, window.innerHeight - 180);
-    setContextMenu({ x, y, msg });
-  };
-
-  const closeAll = useCallback(() => { setContextMenu(null); setReactionPickerFor(null); }, []);
-
   let lastDate = '';
 
   return (
-    <div className="message-list" onClick={closeAll}>
+    <div className="message-list">
 
-      {/* Pinned messages banner */}
+      {/* ── Pinned banner ─────────────────────────────────────────────── */}
       {pinnedMessages.length > 0 && (
-        <div className="pinned-banner" onClick={(e) => { e.stopPropagation(); setShowPinned(s => !s); }}>
+        <div className="pinned-banner" onClick={() => setShowPinned(s => !s)}>
           <span className="pin-icon">📌</span>
           <span className="pin-preview">
-            {showPinned ? 'Hide pinned messages' : pinnedMessages[pinnedMessages.length - 1]?.content?.slice(0, 60) + (pinnedMessages[pinnedMessages.length - 1]?.content?.length > 60 ? '…' : '')}
+            {showPinned
+              ? 'Hide pinned messages'
+              : (pinnedMessages[pinnedMessages.length - 1]?.content?.slice(0, 60) ?? '') +
+                (pinnedMessages[pinnedMessages.length - 1]?.content?.length > 60 ? '…' : '')}
           </span>
           <span className="pin-count">{pinnedMessages.length}</span>
           <span className="pin-chevron">{showPinned ? '▲' : '▼'}</span>
         </div>
       )}
 
-      {/* Pinned messages list expanded */}
       {showPinned && pinnedMessages.length > 0 && (
         <div className="pinned-list">
           {pinnedMessages.map(p => (
             <div key={p.id} className="pinned-item">
               <span className="pinned-sender">{p.sender}</span>
               <span className="pinned-content">{p.content}</span>
-              <button className="unpin-btn" onClick={(e) => { e.stopPropagation(); onPinMessage(p.id); }}>✕</button>
+              <button className="unpin-btn" onMouseDown={(e) => { e.stopPropagation(); onPinMessage(p.id); }}>✕</button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Search results header */}
+      {/* ── Search header ─────────────────────────────────────────────── */}
       {searchQuery && (
         <div className="search-header">
           🔍 {messages.length} result{messages.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
         </div>
       )}
 
-      {/* Messages */}
+      {/* ── Messages ──────────────────────────────────────────────────── */}
       {messages.map((msg) => {
         const isSelf = msg.sender === username;
         const msgDate = formatDate(msg.timestamp);
         const showDate = !searchQuery && msgDate !== lastDate;
         if (showDate) lastDate = msgDate;
         const isPinned = pinnedMessages.some(p => p.id === msg.id);
+        const isEditing = editingId === msg.id;
 
         return (
           <div key={msg.id}>
-            {showDate && (
-              <div className="date-divider"><span>{msgDate}</span></div>
-            )}
+            {showDate && <div className="date-divider"><span>{msgDate}</span></div>}
+
             <div
               className={`msg-wrapper ${isSelf ? 'self' : 'other'} ${isPinned ? 'is-pinned' : ''}`}
-              onContextMenu={(e) => !msg.deleted && handleContextMenu(e, msg)}
+              onContextMenu={(e) => !msg.deleted && openContextMenu(e, msg)}
             >
-              {!isSelf && <div className="avatar">{msg.sender[0]?.toUpperCase()}</div>}
+              {/* Avatar for others */}
+              {!isSelf && <div className="avatar">{msg.sender?.[0]?.toUpperCase()}</div>}
+
+              {/* Bubble + reactions */}
               <div className="bubble-col">
                 <div className={`bubble ${isSelf ? 'bubble-self' : 'bubble-other'} ${msg.status === 'pending' ? 'pending' : ''}`}>
                   {!isSelf && !msg.deleted && <span className="bubble-sender">{msg.sender}</span>}
 
-                  {/* Message content */}
-                  {editingId === msg.id ? (
+                  {isEditing ? (
                     <EditBubble
                       initialContent={msg.content}
-                      onSave={(val) => { if (val) onEditMessage(msg.id, val); setEditingId(null); }}
+                      onSave={(val) => { onEditMessage(msg.id, val); setEditingId(null); }}
                       onCancel={() => setEditingId(null)}
                     />
                   ) : msg.deleted ? (
-                    <p className="bubble-text deleted-msg">🚫 Message deleted</p>
+                    <p className="bubble-text deleted-msg">🚫 This message was deleted</p>
                   ) : msg.type === 'text' ? (
                     <MentionText content={msg.content} currentUsername={username} />
                   ) : (msg.type === 'image' || msg.type === 'screenshot') ? (
@@ -257,7 +331,7 @@ export default function MessageList({ messages, username, pinnedMessages = [], o
                     <FileMessage content={msg.content} fileName={msg.fileName} fileSize={msg.fileSize} />
                   ) : null}
 
-                  {!msg.deleted && editingId !== msg.id && (
+                  {!msg.deleted && !isEditing && (
                     <div className="bubble-meta">
                       {msg.edited && <span className="edited-label">edited</span>}
                       {isPinned && <span className="pinned-label">📌</span>}
@@ -267,7 +341,7 @@ export default function MessageList({ messages, username, pinnedMessages = [], o
                   )}
                 </div>
 
-                {/* Reactions */}
+                {/* Reaction pills */}
                 {!msg.deleted && (
                   <ReactionBar
                     reactions={msg.reactions}
@@ -275,33 +349,58 @@ export default function MessageList({ messages, username, pinnedMessages = [], o
                     onToggle={(emoji) => onToggleReaction(msg.id, emoji)}
                   />
                 )}
-
-                {/* Inline reaction picker */}
-                {reactionPickerFor === msg.id && (
-                  <ReactionPicker
-                    onPick={(emoji) => { onToggleReaction(msg.id, emoji); setReactionPickerFor(null); }}
-                    onClose={() => setReactionPickerFor(null)}
-                  />
-                )}
               </div>
+
+              {/* Hover action bar — shown via CSS :hover on .msg-wrapper */}
+              {!msg.deleted && !isEditing && (
+                <div className={`msg-actions ${isSelf ? 'actions-self' : 'actions-other'}`}>
+                  <button
+                    className="msg-action-btn"
+                    title="Add reaction"
+                    onMouseDown={(e) => openReactionPicker(e, msg)}
+                  >😊</button>
+                  <button
+                    className="msg-action-btn"
+                    title="More options"
+                    onMouseDown={(e) => openContextMenu(e, msg)}
+                  >···</button>
+                </div>
+              )}
             </div>
           </div>
         );
       })}
       <div ref={bottomRef} />
 
-      {/* Context menu */}
+      {/* Portal menus */}
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
           isSelf={contextMenu.msg.sender === username}
           isPinned={pinnedMessages.some(p => p.id === contextMenu.msg.id)}
-          onDelete={() => { onDeleteMessage(contextMenu.msg.id); closeAll(); }}
-          onEdit={() => { setEditingId(contextMenu.msg.id); closeAll(); }}
-          onReact={() => { setReactionPickerFor(contextMenu.msg.id); closeAll(); }}
-          onPin={() => { onPinMessage(contextMenu.msg.id); closeAll(); }}
+          onDelete={() => onDeleteMessage(contextMenu.msg.id)}
+          onEdit={() => setEditingId(contextMenu.msg.id)}
+          onReact={() => {
+            const msg = contextMenu.msg;
+            const rect = contextMenu;
+            setContextMenu(null);
+            setReactionPicker({
+              anchorRect: { top: rect.y, left: rect.x, right: rect.x + 200 },
+              msg,
+            });
+          }}
+          onPin={() => onPinMessage(contextMenu.msg.id)}
           onClose={closeAll}
+        />
+      )}
+
+      {reactionPicker && (
+        <QuickReactionPicker
+          anchorRect={reactionPicker.anchorRect}
+          isSelf={reactionPicker.msg.sender === username}
+          onPick={(emoji) => onToggleReaction(reactionPicker.msg.id, emoji)}
+          onClose={() => setReactionPicker(null)}
         />
       )}
     </div>
