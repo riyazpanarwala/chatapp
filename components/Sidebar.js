@@ -1,21 +1,16 @@
 'use client';
 import { useState } from 'react';
 
-export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnline, onJoinRoom, onCreateRoom, onLeaveRoom, onSetUsername }) {
-  const [view, setView] = useState('rooms'); // rooms | users | create
-  const [joinRoomId, setJoinRoomId] = useState('');
+export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnline, onlineUsers, dmList, onJoinRoom, onCreateRoom, onLeaveRoom, onOpenDM }) {
+  const [view, setView] = useState('rooms'); // rooms | users | create | dms
   const [joinPassword, setJoinPassword] = useState('');
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(null);
   const [createName, setCreateName] = useState('');
   const [createPassword, setCreatePassword] = useState('');
-  const [newUsername, setNewUsername] = useState('');
 
   const handleJoin = (room) => {
-    if (room.hasPassword) {
-      setShowPasswordPrompt(room);
-    } else {
-      onJoinRoom(room.id, '');
-    }
+    if (room.hasPassword) setShowPasswordPrompt(room);
+    else onJoinRoom(room.id, '');
   };
 
   const handlePasswordJoin = () => {
@@ -33,9 +28,10 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
     setView('rooms');
   };
 
+  const otherOnlineUsers = (onlineUsers || []).filter(u => u !== username);
+
   return (
     <aside className="sidebar">
-      {/* Header */}
       <div className="sidebar-header">
         <div className="user-badge">
           <div className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
@@ -46,7 +42,6 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
         )}
       </div>
 
-      {/* Tabs */}
       <div className="sidebar-tabs">
         <button className={`tab ${view === 'rooms' ? 'active' : ''}`} onClick={() => setView('rooms')}>Rooms</button>
         {currentRoom && (
@@ -54,7 +49,10 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
             Users <span className="badge">{roomUsers.length}</span>
           </button>
         )}
-        <button className={`tab ${view === 'create' ? 'active' : ''}`} onClick={() => setView('create')}>+ New</button>
+        <button className={`tab ${view === 'dms' ? 'active' : ''}`} onClick={() => setView('dms')}>
+          DMs {dmList.length > 0 && <span className="badge">{dmList.length}</span>}
+        </button>
+        <button className={`tab ${view === 'create' ? 'active' : ''}`} onClick={() => setView('create')}>+</button>
       </div>
 
       <div className="sidebar-body">
@@ -78,7 +76,7 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
           </div>
         )}
 
-        {/* Users List */}
+        {/* Users in room — with DM button */}
         {view === 'users' && currentRoom && (
           <div className="user-list">
             <p className="section-title">In {currentRoom.name}</p>
@@ -86,9 +84,63 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
               <div key={u.username} className="user-item">
                 <div className={`status-dot ${u.online ? 'online' : 'offline'}`} />
                 <span className={u.username === username ? 'you' : ''}>{u.username}</span>
-                {u.username === username && <span className="you-tag">you</span>}
+                {u.username === username
+                  ? <span className="you-tag">you</span>
+                  : (
+                    <button
+                      className="dm-btn"
+                      title={`Message ${u.username}`}
+                      onClick={() => { onOpenDM(u.username); }}
+                    >
+                      ✉
+                    </button>
+                  )
+                }
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Direct Messages */}
+        {view === 'dms' && (
+          <div className="room-list">
+            <p className="section-title">Direct Messages</p>
+            {dmList.length === 0 && (
+              <p className="empty-hint">No DMs yet. Click ✉ next to a user in a room.</p>
+            )}
+            {dmList.map(dm => (
+              <div
+                key={dm.roomId}
+                className={`room-item ${currentRoom?.id === dm.roomId ? 'active' : ''}`}
+                onClick={() => onJoinRoom(dm.roomId, '')}
+              >
+                <div className="room-icon">💌</div>
+                <div className="room-info">
+                  <span className="room-name">{dm.with}</span>
+                  <span className="room-meta">Direct message</span>
+                </div>
+              </div>
+            ))}
+
+            {otherOnlineUsers.length > 0 && (
+              <>
+                <p className="section-title" style={{ marginTop: 12 }}>Online now</p>
+                {otherOnlineUsers.map(u => (
+                  <div
+                    key={u}
+                    className="room-item"
+                    onClick={() => onOpenDM(u)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="status-dot online" style={{ margin: '0 6px 0 8px' }} />
+                    <div className="room-info">
+                      <span className="room-name">{u}</span>
+                      <span className="room-meta">Click to DM</span>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         )}
 
@@ -115,7 +167,6 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
         )}
       </div>
 
-      {/* Password Prompt Modal */}
       {showPasswordPrompt && (
         <div className="modal-overlay" onClick={() => setShowPasswordPrompt(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>

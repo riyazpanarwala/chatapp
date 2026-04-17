@@ -11,7 +11,7 @@ const handle = app.getRequestHandler();
 
 // In-memory store
 const users = new Map();   // socketId -> { username, roomId, avatar }
-const rooms = new Map();   // roomId -> { name, password, users: Set, messages: [] }
+const rooms = new Map();   // roomId -> { name, password, users: Set, messages: [], pinnedMessages: [], isDM: bool }
 
 function getRoomPublicInfo(roomId) {
   const room = rooms.get(roomId);
@@ -21,6 +21,8 @@ function getRoomPublicInfo(roomId) {
     name: room.name,
     hasPassword: !!room.password,
     userCount: room.users.size,
+    isDM: !!room.isDM,
+    pinnedMessages: room.pinnedMessages || [],
     users: [...room.users].map(uid => {
       const u = [...users.values()].find(u => u.username === uid);
       return { username: uid, online: !!u };
@@ -28,9 +30,12 @@ function getRoomPublicInfo(roomId) {
   };
 }
 
+function getDMRoomId(userA, userB) {
+  return 'dm-' + [userA, userB].sort().join('-');
+}
+
 app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
-    // Handle file uploads
     if (req.method === 'POST' && req.url.startsWith('/api/upload')) {
       const uploadDir = path.join(process.cwd(), 'public', 'uploads');
       if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -67,40 +72,38 @@ app.prepare().then(() => {
 
   const io = new Server(httpServer, {
     cors: { origin: '*', methods: ['GET', 'POST'] },
-    maxHttpBufferSize: 50e6, // 50MB
+    maxHttpBufferSize: 50e6,
   });
 
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
-    // Set username
     socket.on('set-username', ({ username }) => {
       users.set(socket.id, { username, roomId: null });
       socket.emit('username-set', { username });
     });
 
-    // List rooms
     socket.on('get-rooms', () => {
-      const roomList = [...rooms.entries()].map(([id, r]) => ({
-        id, name: r.name, hasPassword: !!r.password, userCount: r.users.size
-      }));
+      const roomList = [...rooms.entries()]
+        .filter(([, r]) => !r.isDM)
+        .map(([id, r]) => ({
+          id, name: r.name, hasPassword: !!r.password, userCount: r.users.size
+        }));
       socket.emit('rooms-list', roomList);
     });
 
-    // Create room
     socket.on('create-room', ({ roomId, name, password }) => {
       if (rooms.has(roomId)) {
         socket.emit('room-error', { message: 'Room ID already exists' });
         return;
       }
-      rooms.set(roomId, { name, password: password || null, users: new Set(), messages: [] });
+      rooms.set(roomId, { name, password: password || null, users: new Set(), messages: [], pinnedMessages: [] });
       socket.emit('room-created', { roomId, name });
-      io.emit('rooms-updated', [...rooms.entries()].map(([id, r]) => ({
-        id, name: r.name, hasPassword: !!r.password, userCount: r.users.size
-      })));
+      io.emit('rooms-updated', [...rooms.entries()]
+        .filter(([, r]) => !r.isDM)
+        .map(([id, r]) => ({ id, name: r.name, hasPassword: !!r.password, userCount: r.users.size })));
     });
 
-    // Join room
     socket.on('join-room', ({ roomId, username, password }) => {
       const room = rooms.get(roomId);
       if (!room) { socket.emit('room-error', { message: 'Room not found' }); return; }
@@ -108,7 +111,6 @@ app.prepare().then(() => {
         socket.emit('room-error', { message: 'Incorrect password' }); return;
       }
 
-      // Leave old room
       const user = users.get(socket.id);
       if (user && user.roomId) {
         const oldRoom = rooms.get(user.roomId);
@@ -120,7 +122,6 @@ app.prepare().then(() => {
         }
       }
 
-      // Join new room
       socket.join(roomId);
       room.users.add(username);
       users.set(socket.id, { username, roomId });
@@ -128,15 +129,16 @@ app.prepare().then(() => {
       socket.emit('joined-room', {
         roomId,
         name: room.name,
+        isDM: !!room.isDM,
         messages: room.messages.slice(-100),
         users: getRoomPublicInfo(roomId),
+        pinnedMessages: room.pinnedMessages || [],
       });
 
       socket.to(roomId).emit('user-joined', { username, roomId });
       io.to(roomId).emit('room-users', getRoomPublicInfo(roomId));
     });
 
-    // Leave room
     socket.on('leave-room', ({ roomId }) => {
       const user = users.get(socket.id);
       if (!user) return;
@@ -150,7 +152,6 @@ app.prepare().then(() => {
       users.set(socket.id, { ...user, roomId: null });
     });
 
-    // Send message
     socket.on('send-message', (message, ack) => {
       const room = rooms.get(message.roomId);
       if (!room) { if (ack) ack({ error: 'Room not found' }); return; }
@@ -159,11 +160,27 @@ app.prepare().then(() => {
       room.messages.push(fullMessage);
       if (room.messages.length > 500) room.messages.shift();
 
+      // Handle @mentions — notify mentioned users
+      if (message.type === 'text' && message.content) {
+        const mentions = [...message.content.matchAll(/@(\w+)/g)].map(m => m[1]);
+        mentions.forEach(mentionedUser => {
+          const mentionedSocket = [...users.entries()].find(([, u]) => u.username === mentionedUser);
+          if (mentionedSocket) {
+            io.to(mentionedSocket[0]).emit('mention-notification', {
+              from: message.sender,
+              roomId: message.roomId,
+              roomName: room.name,
+              preview: message.content.slice(0, 80),
+              messageId: message.id,
+            });
+          }
+        });
+      }
+
       socket.to(message.roomId).emit('new-message', fullMessage);
       if (ack) ack({ status: 'delivered', messageId: message.id });
     });
 
-    // Typing
     socket.on('typing', ({ roomId, username }) => {
       socket.to(roomId).emit('user-typing', { username });
     });
@@ -171,7 +188,6 @@ app.prepare().then(() => {
       socket.to(roomId).emit('user-stop-typing', { username });
     });
 
-    // Read receipt
     socket.on('read-message', ({ roomId, messageId, username }) => {
       const room = rooms.get(roomId);
       if (room) {
@@ -181,7 +197,6 @@ app.prepare().then(() => {
       socket.to(roomId).emit('message-read', { messageId, username });
     });
 
-    // File/blob message (binary)
     socket.on('send-blob', ({ roomId, message }) => {
       const room = rooms.get(roomId);
       if (!room) return;
@@ -189,7 +204,111 @@ app.prepare().then(() => {
       io.to(roomId).emit('new-message', message);
     });
 
-    // Disconnect
+    // ── EDIT MESSAGE ────────────────────────────────────────────────────────
+    socket.on('edit-message', ({ roomId, messageId, newContent, username }) => {
+      const room = rooms.get(roomId);
+      if (!room) return;
+      const msg = room.messages.find(m => m.id === messageId);
+      if (!msg || msg.sender !== username) return;
+      if (!msg.editHistory) msg.editHistory = [];
+      msg.editHistory.push({ content: msg.content, editedAt: Date.now() });
+      msg.content = newContent;
+      msg.edited = true;
+      msg.editedAt = Date.now();
+      io.to(roomId).emit('message-edited', { messageId, newContent, editedAt: msg.editedAt });
+    });
+
+    // ── DELETE MESSAGE ───────────────────────────────────────────────────────
+    socket.on('delete-message', ({ roomId, messageId, username }) => {
+      const room = rooms.get(roomId);
+      if (!room) return;
+      const msg = room.messages.find(m => m.id === messageId);
+      if (!msg || msg.sender !== username) return;
+      msg.deleted = true;
+      msg.content = '';
+      msg.type = 'deleted';
+      // Remove from pinned if pinned
+      if (room.pinnedMessages) {
+        room.pinnedMessages = room.pinnedMessages.filter(p => p.id !== messageId);
+      }
+      io.to(roomId).emit('message-deleted', { messageId, roomId });
+      io.to(roomId).emit('pinned-messages-updated', { pinnedMessages: room.pinnedMessages || [] });
+    });
+
+    // ── REACTIONS ────────────────────────────────────────────────────────────
+    socket.on('toggle-reaction', ({ roomId, messageId, emoji, username }) => {
+      const room = rooms.get(roomId);
+      if (!room) return;
+      const msg = room.messages.find(m => m.id === messageId);
+      if (!msg) return;
+      if (!msg.reactions) msg.reactions = {};
+      if (!msg.reactions[emoji]) msg.reactions[emoji] = [];
+      const idx = msg.reactions[emoji].indexOf(username);
+      if (idx === -1) msg.reactions[emoji].push(username);
+      else {
+        msg.reactions[emoji].splice(idx, 1);
+        if (msg.reactions[emoji].length === 0) delete msg.reactions[emoji];
+      }
+      io.to(roomId).emit('reaction-updated', { messageId, reactions: msg.reactions });
+    });
+
+    // ── PIN MESSAGE ──────────────────────────────────────────────────────────
+    socket.on('pin-message', ({ roomId, messageId, username }) => {
+      const room = rooms.get(roomId);
+      if (!room) return;
+      const msg = room.messages.find(m => m.id === messageId);
+      if (!msg || msg.deleted) return;
+      if (!room.pinnedMessages) room.pinnedMessages = [];
+
+      const alreadyPinned = room.pinnedMessages.find(p => p.id === messageId);
+      if (alreadyPinned) {
+        room.pinnedMessages = room.pinnedMessages.filter(p => p.id !== messageId);
+      } else {
+        if (room.pinnedMessages.length >= 5) room.pinnedMessages.shift(); // max 5 pinned
+        room.pinnedMessages.push({
+          id: msg.id,
+          sender: msg.sender,
+          content: msg.type === 'text' ? msg.content : `[${msg.type}]`,
+          pinnedBy: username,
+          pinnedAt: Date.now(),
+        });
+      }
+      io.to(roomId).emit('pinned-messages-updated', { pinnedMessages: room.pinnedMessages });
+    });
+
+    // ── DIRECT MESSAGE ───────────────────────────────────────────────────────
+    socket.on('open-dm', ({ fromUser, toUser }) => {
+      const roomId = getDMRoomId(fromUser, toUser);
+      if (!rooms.has(roomId)) {
+        rooms.set(roomId, {
+          name: `DM: ${fromUser} & ${toUser}`,
+          password: null,
+          users: new Set(),
+          messages: [],
+          pinnedMessages: [],
+          isDM: true,
+          dmUsers: [fromUser, toUser],
+        });
+      }
+
+      // Also notify the other user if they're online
+      const otherSocket = [...users.entries()].find(([, u]) => u.username === toUser);
+      if (otherSocket) {
+        io.to(otherSocket[0]).emit('dm-invite', { fromUser, roomId, toUser });
+      }
+
+      socket.emit('dm-room-ready', { roomId, toUser });
+    });
+
+    // ── GET ONLINE USERS (for DM picker) ────────────────────────────────────
+    socket.on('get-online-users', () => {
+      const onlineUsers = [...users.values()]
+        .map(u => u.username)
+        .filter(Boolean)
+        .filter((v, i, a) => a.indexOf(v) === i); // unique
+      socket.emit('online-users', onlineUsers);
+    });
+
     socket.on('disconnect', () => {
       const user = users.get(socket.id);
       if (user && user.roomId) {
