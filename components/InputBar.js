@@ -5,14 +5,21 @@ import { v4 as uuidv4 } from 'uuid';
 
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
+const WEBRTC_BASE = 'https://webrtc-video-app-one.vercel.app';
+
+function buildVideoCallUrl(roomId, userName) {
+  return `${WEBRTC_BASE}/join/${encodeURIComponent(roomId)}?name=${encodeURIComponent(userName)}`;
+}
+
 export default function InputBar({ currentRoom, username, roomUsers, onSendMessage, onTyping, disabled }) {
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [mentionQuery, setMentionQuery] = useState(null); // { query, start }
+  const [mentionQuery, setMentionQuery] = useState(null);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [isStartingCall, setIsStartingCall] = useState(false);
   const inputRef = useRef(null);
   const mediaRef = useRef(null);
   const chunksRef = useRef([]);
@@ -63,8 +70,32 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     setMentionResults([]);
   }, [text, disabled, onSendMessage]);
 
+  // ── Video Call ─────────────────────────────────────────────────────────────
+  const startVideoCall = useCallback(async () => {
+    if (!username || !currentRoom || isStartingCall) return;
+    setIsStartingCall(true);
+
+    try {
+      // Generate a unique call room ID
+      const callRoomId = `${currentRoom.id}-${uuidv4().slice(0, 8)}`;
+      const callUrl = buildVideoCallUrl(callRoomId, username);
+
+      // Send a special video-call message into the chat
+      onSendMessage(callUrl, 'video-call', {
+        callRoomId,
+        callerName: username,
+        callUrl,
+      });
+
+      // Open the call for the initiator immediately
+      window.open(callUrl, '_blank', 'noopener,noreferrer');
+    } finally {
+      setIsStartingCall(false);
+    }
+  }, [username, currentRoom, isStartingCall, onSendMessage]);
+  // ──────────────────────────────────────────────────────────────────────────
+
   const handleKey = (e) => {
-    // Handle mention picker navigation
     if (mentionResults.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => (i + 1) % mentionResults.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => (i - 1 + mentionResults.length) % mentionResults.length); return; }
@@ -222,6 +253,16 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
           {isRecording ? '⏹' : '🎤'}
         </button>
         <button className="icon-btn" onClick={takeScreenshot} title="Share screenshot">🖥️</button>
+
+        {/* ── Video Call Button ── */}
+        <button
+          className={`icon-btn video-call-btn ${isStartingCall ? 'calling' : ''}`}
+          onClick={startVideoCall}
+          disabled={disabled || isStartingCall}
+          title="Start video call"
+        >
+          {isStartingCall ? '⏳' : '📹'}
+        </button>
 
         <button
           className={`send-btn ${text.trim() ? 'active' : ''}`}

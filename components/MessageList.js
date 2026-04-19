@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import VideoCallNotification from './VideoCallNotification';
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
@@ -77,7 +78,6 @@ function ReactionBar({ reactions = {}, username, onToggle }) {
   );
 }
 
-// Rendered into document.body via portal — never clipped by overflow:auto
 function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin, onClose }) {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
@@ -125,7 +125,6 @@ function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin,
   );
 }
 
-// Quick emoji picker shown above a message row
 function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
   const ref = useRef(null);
 
@@ -146,7 +145,7 @@ function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
 
   if (!anchorRect || typeof document === 'undefined') return null;
 
-  const pickerWidth = 252; // 6 emojis × 36px + padding
+  const pickerWidth = 252;
   const top = Math.max(8, anchorRect.top - 52);
   const left = isSelf
     ? Math.max(8, anchorRect.right - pickerWidth)
@@ -210,8 +209,8 @@ export default function MessageList({
   searchQuery,
 }) {
   const bottomRef = useRef(null);
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, msg }
-  const [reactionPicker, setReactionPicker] = useState(null); // { anchorRect, msg }
+  const [contextMenu, setContextMenu] = useState(null);
+  const [reactionPicker, setReactionPicker] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [showPinned, setShowPinned] = useState(false);
 
@@ -254,7 +253,7 @@ export default function MessageList({
   return (
     <div className="message-list">
 
-      {/* ── Pinned banner ─────────────────────────────────────────────── */}
+      {/* Pinned banner */}
       {pinnedMessages.length > 0 && (
         <div className="pinned-banner" onClick={() => setShowPinned(s => !s)}>
           <span className="pin-icon">📌</span>
@@ -281,14 +280,14 @@ export default function MessageList({
         </div>
       )}
 
-      {/* ── Search header ─────────────────────────────────────────────── */}
+      {/* Search header */}
       {searchQuery && (
         <div className="search-header">
           🔍 {messages.length} result{messages.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
         </div>
       )}
 
-      {/* ── Messages ──────────────────────────────────────────────────── */}
+      {/* Messages */}
       {messages.map((msg) => {
         const isSelf = msg.sender === username;
         const msgDate = formatDate(msg.timestamp);
@@ -296,6 +295,23 @@ export default function MessageList({
         if (showDate) lastDate = msgDate;
         const isPinned = pinnedMessages.some(p => p.id === msg.id);
         const isEditing = editingId === msg.id;
+
+        // ── Video call message: full-width card, no bubble chrome ──────────
+        if (msg.type === 'video-call' && !msg.deleted) {
+          return (
+            <div key={msg.id}>
+              {showDate && <div className="date-divider"><span>{msgDate}</span></div>}
+              <div className="vc-message-row">
+                <VideoCallNotification
+                  message={msg}
+                  username={username}
+                  isSelf={isSelf}
+                />
+                <span className="vc-timestamp">{formatTime(msg.timestamp)}</span>
+              </div>
+            </div>
+          );
+        }
 
         return (
           <div key={msg.id}>
@@ -305,10 +321,8 @@ export default function MessageList({
               className={`msg-wrapper ${isSelf ? 'self' : 'other'} ${isPinned ? 'is-pinned' : ''}`}
               onContextMenu={(e) => !msg.deleted && openContextMenu(e, msg)}
             >
-              {/* Avatar for others */}
               {!isSelf && <div className="avatar">{msg.sender?.[0]?.toUpperCase()}</div>}
 
-              {/* Bubble + reactions */}
               <div className="bubble-col">
                 <div className={`bubble ${isSelf ? 'bubble-self' : 'bubble-other'} ${msg.status === 'pending' ? 'pending' : ''}`}>
                   {!isSelf && !msg.deleted && <span className="bubble-sender">{msg.sender}</span>}
@@ -341,7 +355,6 @@ export default function MessageList({
                   )}
                 </div>
 
-                {/* Reaction pills */}
                 {!msg.deleted && (
                   <ReactionBar
                     reactions={msg.reactions}
@@ -351,7 +364,6 @@ export default function MessageList({
                 )}
               </div>
 
-              {/* Hover action bar — shown via CSS :hover on .msg-wrapper */}
               {!msg.deleted && !isEditing && (
                 <div className={`msg-actions ${isSelf ? 'actions-self' : 'actions-other'}`}>
                   <button
@@ -372,7 +384,6 @@ export default function MessageList({
       })}
       <div ref={bottomRef} />
 
-      {/* Portal menus */}
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}

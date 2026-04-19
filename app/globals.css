@@ -475,3 +475,153 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   /* On touch devices, always show action buttons (no hover) */
   .msg-actions { opacity: 1; pointer-events: all; }
 }
+
+/* ── Video Call Button ────────────────────────────────────────────────────── */
+.video-call-btn {
+  position: relative;
+  transition: background 0.15s, color 0.15s, box-shadow 0.2s;
+}
+.video-call-btn:not(:disabled):hover {
+  background: rgba(34, 197, 94, 0.15) !important;
+  color: #22c55e !important;
+  border-color: #22c55e !important;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+.video-call-btn.calling {
+  animation: vc-pulse-btn 1s infinite;
+}
+@keyframes vc-pulse-btn {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+/* ── Video Call Message Row ───────────────────────────────────────────────── */
+.vc-message-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 20px;
+  gap: 4px;
+}
+.vc-timestamp {
+  font-size: 10px;
+  color: var(--text3);
+  font-family: 'Space Mono', monospace;
+}
+
+/* ── Video Call Card ──────────────────────────────────────────────────────── */
+.video-call-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(16,185,129,0.06) 100%);
+  border: 1px solid rgba(34,197,94,0.25);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 420px;
+  transition: border-color 0.2s, background 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.video-call-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(34,197,94,0.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+.video-call-card.expired {
+  background: rgba(255,255,255,0.02);
+  border-color: var(--border);
+  opacity: 0.65;
+}
+.video-call-card.expired::before { display: none; }
+
+/* Icon + pulse ring */
+.vc-icon-wrap {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vc-icon {
+  font-size: 22px;
+  position: relative;
+  z-index: 1;
+}
+.vc-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(34,197,94,0.5);
+  animation: vc-ring 1.8s ease-out infinite;
+}
+@keyframes vc-ring {
+  0%   { transform: scale(0.7);  opacity: 0.9; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* Text */
+.vc-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.vc-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.3;
+}
+.vc-sub {
+  font-size: 12px;
+  color: var(--text3);
+}
+.vc-timer {
+  font-family: 'Space Mono', monospace;
+  color: #22c55e;
+  font-size: 12px;
+  font-weight: 700;
+}
+.expired-label {
+  color: var(--text3);
+  font-style: italic;
+}
+
+/* Join / Rejoin buttons */
+.vc-join-btn,
+.vc-rejoin-btn {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.vc-join-btn {
+  background: #22c55e;
+  color: #0a0c0f;
+  border: none;
+}
+.vc-join-btn:hover {
+  background: #16a34a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(34,197,94,0.35);
+}
+.vc-rejoin-btn {
+  background: rgba(34,197,94,0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34,197,94,0.35);
+}
+.vc-rejoin-btn:hover {
+  background: rgba(34,197,94,0.18);
+  border-color: #22c55e;
+}
