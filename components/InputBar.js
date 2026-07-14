@@ -2,6 +2,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { v4 as uuidv4 } from 'uuid';
+import { SmileIcon, PaperclipIcon, MicIcon, StopIcon, MonitorIcon, VideoIcon, SendIcon, ClockIcon } from '../lib/icons';
 
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
@@ -225,7 +226,9 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
       )}
 
       <div className="input-bar">
-        <button className="icon-btn" onClick={() => setShowEmoji(s => !s)} title="Emoji">😊</button>
+        <button className="icon-btn" onClick={() => setShowEmoji(s => !s)} title="Emoji">
+          <SmileIcon size={17} />
+        </button>
 
         <div className="input-wrap">
           {isRecording ? (
@@ -248,11 +251,15 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
         </div>
 
         <input ref={fileInputRef} type="file" multiple accept="*/*" onChange={handleFileChange} style={{ display: 'none' }} />
-        <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Attach file">📎</button>
-        <button className="icon-btn" onClick={isRecording ? stopRecording : startRecording} title="Voice message">
-          {isRecording ? '⏹' : '🎤'}
+        <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Attach file">
+          <PaperclipIcon size={17} />
         </button>
-        <button className="icon-btn" onClick={takeScreenshot} title="Share screenshot">🖥️</button>
+        <button className="icon-btn" onClick={isRecording ? stopRecording : startRecording} title="Voice message">
+          {isRecording ? <StopIcon size={16} /> : <MicIcon size={17} />}
+        </button>
+        <button className="icon-btn" onClick={takeScreenshot} title="Share screenshot">
+          <MonitorIcon size={17} />
+        </button>
 
         {/* ── Video Call Button ── */}
         <button
@@ -261,15 +268,16 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
           disabled={disabled || isStartingCall}
           title="Start video call"
         >
-          {isStartingCall ? '⏳' : '📹'}
+          {isStartingCall ? <ClockIcon size={17} /> : <VideoIcon size={17} />}
         </button>
 
         <button
           className={`send-btn ${text.trim() ? 'active' : ''}`}
           onClick={send}
           disabled={!text.trim() || disabled}
+          title="Send"
         >
-          ➤
+          <SendIcon size={16} />
         </button>
       </div>
     </div>

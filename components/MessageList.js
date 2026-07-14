@@ -2,13 +2,19 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import VideoCallNotification from './VideoCallNotification';
+import {
+  PinIcon, SmileIcon, EditIcon, TrashIcon,
+  CheckIcon, CheckCheckIcon, ClockIcon, MoreIcon,
+} from '../lib/icons';
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
 function StatusIcon({ status }) {
-  const icons = { pending: '⏳', sent: '✓', delivered: '✓✓', read: '✓✓' };
-  const colors = { pending: '#888', sent: '#aaa', delivered: '#aaa', read: '#60a5fa' };
-  return <span style={{ color: colors[status] || '#888', fontSize: '10px' }}>{icons[status] || ''}</span>;
+  const colors = { pending: '#7a8199', sent: '#9aa1b5', delivered: '#9aa1b5', read: '#5b6ef5' };
+  const color = colors[status] || '#7a8199';
+  if (status === 'pending') return <ClockIcon size={12} style={{ color }} />;
+  if (status === 'sent') return <CheckIcon size={12} style={{ color }} />;
+  return <CheckCheckIcon size={13} style={{ color }} />;
 }
 
 function ImageMessage({ content, fileName }) {
@@ -114,12 +120,22 @@ function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin,
       style={{ position: 'fixed', zIndex: 9999, top: pos.y, left: pos.x }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <button className="ctx-btn" onMouseDown={() => { onReact(); onClose(); }}>😊 Add reaction</button>
-      <button className="ctx-btn" onMouseDown={() => { onPin(); onClose(); }}>
-        {isPinned ? '📌 Unpin message' : '📌 Pin message'}
+      <button className="ctx-btn" onMouseDown={() => { onReact(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <SmileIcon size={15} /> Add reaction
       </button>
-      {isSelf && <button className="ctx-btn" onMouseDown={() => { onEdit(); onClose(); }}>✏️ Edit message</button>}
-      {isSelf && <button className="ctx-btn danger" onMouseDown={() => { onDelete(); onClose(); }}>🗑 Delete message</button>}
+      <button className="ctx-btn" onMouseDown={() => { onPin(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <PinIcon size={15} /> {isPinned ? 'Unpin message' : 'Pin message'}
+      </button>
+      {isSelf && (
+        <button className="ctx-btn" onMouseDown={() => { onEdit(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <EditIcon size={15} /> Edit message
+        </button>
+      )}
+      {isSelf && (
+        <button className="ctx-btn danger" onMouseDown={() => { onDelete(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <TrashIcon size={15} /> Delete message
+        </button>
+      )}
     </div>,
     document.body
   );
@@ -256,7 +272,7 @@ export default function MessageList({
       {/* Pinned banner */}
       {pinnedMessages.length > 0 && (
         <div className="pinned-banner" onClick={() => setShowPinned(s => !s)}>
-          <span className="pin-icon">📌</span>
+          <span className="pin-icon"><PinIcon size={13} /></span>
           <span className="pin-preview">
             {showPinned
               ? 'Hide pinned messages'
@@ -283,7 +299,7 @@ export default function MessageList({
       {/* Search header */}
       {searchQuery && (
         <div className="search-header">
-          🔍 {messages.length} result{messages.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
+          {messages.length} result{messages.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
         </div>
       )}
 
@@ -334,7 +350,7 @@ export default function MessageList({
                       onCancel={() => setEditingId(null)}
                     />
                   ) : msg.deleted ? (
-                    <p className="bubble-text deleted-msg">🚫 This message was deleted</p>
+                    <p className="bubble-text deleted-msg">This message was deleted</p>
                   ) : msg.type === 'text' ? (
                     <MentionText content={msg.content} currentUsername={username} />
                   ) : (msg.type === 'image' || msg.type === 'screenshot') ? (
@@ -348,7 +364,7 @@ export default function MessageList({
                   {!msg.deleted && !isEditing && (
                     <div className="bubble-meta">
                       {msg.edited && <span className="edited-label">edited</span>}
-                      {isPinned && <span className="pinned-label">📌</span>}
+                      {isPinned && <span className="pinned-label"><PinIcon size={10} /></span>}
                       <span className="bubble-time">{formatTime(msg.timestamp)}</span>
                       {isSelf && <StatusIcon status={msg.status} />}
                     </div>
@@ -370,12 +386,12 @@ export default function MessageList({
                     className="msg-action-btn"
                     title="Add reaction"
                     onMouseDown={(e) => openReactionPicker(e, msg)}
-                  >😊</button>
+                  ><SmileIcon size={15} /></button>
                   <button
                     className="msg-action-btn"
                     title="More options"
                     onMouseDown={(e) => openContextMenu(e, msg)}
-                  >···</button>
+                  ><MoreIcon size={15} /></button>
                 </div>
               )}
             </div>
