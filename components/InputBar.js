@@ -9,7 +9,7 @@ function buildVideoCallUrl(roomId, userName) {
   return `${WEBRTC_BASE}/join/${encodeURIComponent(roomId)}?name=${encodeURIComponent(userName)}`;
 }
 
-export default function InputBar({ currentRoom, username, roomUsers, onSendMessage, onTyping, disabled }) {
+export default function InputBar({ currentRoom, username, roomUsers, onSendMessage, onTyping, disabled, replyingTo, onCancelReply }) {
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [EmojiPicker, setEmojiPicker] = useState(null);
@@ -46,9 +46,11 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     if (match) {
       const query = match[1].toLowerCase();
       const start = beforeCursor.length - match[0].length;
-      const results = (roomUsers || [])
+      const specialMentions = currentRoom?.isDM ? [] : ['everyone', 'here'];
+      const results = [...specialMentions, ...(roomUsers || [])
         .map(u => u.username)
-        .filter(u => u !== username && u.toLowerCase().startsWith(query))
+        .filter(u => u !== username)]
+        .filter(u => u.toLowerCase().startsWith(query))
         .slice(0, 5);
       setMentionQuery({ query, start, full: match[0] });
       setMentionResults(results);
@@ -57,7 +59,7 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
       setMentionQuery(null);
       setMentionResults([]);
     }
-  }, [roomUsers, username]);
+  }, [roomUsers, username, currentRoom?.isDM]);
 
   const insertMention = useCallback((selectedUser) => {
     if (!mentionQuery) return;
@@ -76,12 +78,17 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
 
   const send = useCallback(() => {
     if (!text.trim() || disabled) return;
-    onSendMessage(text.trim(), 'text');
+    onSendMessage(text.trim(), 'text', replyingTo ? { replyTo: {
+      id: replyingTo.id,
+      sender: replyingTo.sender,
+      content: replyingTo.type === 'text' ? replyingTo.content.slice(0, 240) : `[${replyingTo.type}]`,
+    } } : {});
     setText('');
     setShowEmoji(false);
     setMentionQuery(null);
     setMentionResults([]);
-  }, [text, disabled, onSendMessage]);
+    onCancelReply?.();
+  }, [text, disabled, onSendMessage, replyingTo, onCancelReply]);
 
   // ── Video Call ─────────────────────────────────────────────────────────────
   const startVideoCall = useCallback(async () => {
@@ -221,6 +228,12 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
 
   return (
     <div className="input-bar-wrapper">
+      {replyingTo && (
+        <div className="reply-composer">
+          <div><strong>Replying to {replyingTo.sender}</strong><span>{replyingTo.type === 'text' ? replyingTo.content : `[${replyingTo.type}]`}</span></div>
+          <button type="button" onClick={onCancelReply} aria-label="Cancel reply">×</button>
+        </div>
+      )}
       {showEmoji && (
         <div className="emoji-popup" id="emoji-picker-popup" role="dialog" aria-label="Choose an emoji">
           {EmojiPicker ? (

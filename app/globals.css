@@ -811,3 +811,40 @@ html, body {
 .notif-icon, .pin-icon, .pinned-label {
   display: inline-flex; align-items: center; justify-content: center;
 }
+
+/* Conversation depth, discovery, profiles, and moderation */
+.profile-avatar, .member-avatar, .avatar { overflow: hidden; flex-shrink: 0; }
+.profile-avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: white; display: grid; place-items: center; cursor: pointer; font-weight: 700; }
+.profile-avatar img, .member-avatar img, .avatar img { width: 100%; height: 100%; object-fit: cover; }
+.member-avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--surface3); display: grid; place-items: center; font-size: 11px; }
+.unread-badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 800; display: grid; place-items: center; }
+.role-tag { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); border: 1px solid rgba(91,110,245,.35); border-radius: 999px; padding: 2px 5px; }
+.chat-room-description { color: var(--text3); font-size: 11px; max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply-composer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; background: var(--surface2); border-left: 3px solid var(--accent); }
+.reply-composer div { display: flex; flex-direction: column; min-width: 0; }
+.reply-composer span { color: var(--text3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply-composer button { border: 0; background: transparent; color: var(--text2); font-size: 20px; cursor: pointer; }
+.reply-quote { width: 100%; display: flex; flex-direction: column; text-align: left; gap: 2px; border: 0; border-left: 3px solid var(--accent); border-radius: 4px; background: rgba(0,0,0,.18); color: var(--text2); padding: 6px 8px; margin: 2px 0 6px; cursor: pointer; }
+.reply-quote span { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.forwarded-label { color: var(--text3); font-size: 10px; font-style: italic; margin-bottom: 4px; }
+.read-by { max-width: 260px; color: var(--text3); font-size: 9px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.link-preview-list { display: grid; gap: 5px; margin-top: 7px; }
+.link-preview { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(0,0,0,.18); border-left: 3px solid var(--accent); border-radius: 5px; color: inherit; text-decoration: none; max-width: 340px; }
+.link-preview:hover { background: rgba(0,0,0,.28); }
+.link-preview-host { font-weight: 700; font-size: 12px; }
+.link-preview-url { font-size: 10px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.load-more-btn { display: block; margin: 4px auto 14px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+.modal-title-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.global-search-modal, .room-settings-modal { width: min(680px, calc(100vw - 28px)); max-height: min(760px, calc(100vh - 40px)); overflow: auto; }
+.global-results { display: grid; gap: 5px; max-height: 520px; overflow: auto; margin-top: 12px; }
+.global-result { border: 1px solid var(--border); background: var(--surface2); color: var(--text); padding: 10px; border-radius: 8px; text-align: left; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; cursor: pointer; }
+.global-result:hover { border-color: var(--accent); }
+.global-result-room, .global-result time { color: var(--text3); font-size: 10px; }
+.global-result > span:nth-of-type(2) { grid-column: 2 / 4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.field-label { display: block; color: var(--text2); font-size: 12px; margin: 10px 0 5px; }
+.room-description-input { min-height: 78px; resize: vertical; }
+.management-members { display: grid; gap: 6px; margin: 8px 0 16px; }
+.management-member { display: flex; align-items: center; gap: 7px; padding: 8px; border: 1px solid var(--border); border-radius: 7px; }
+.management-member > span:first-child { flex: 1; }
+.management-member select { background: var(--surface3); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 5px; }
+.delete-room-btn { width: 100%; margin-top: 10px; }

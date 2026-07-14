@@ -30,6 +30,9 @@ const RATE_LIMITS = {
   'delete-message': { max: 30, windowMs: 60_000 },
   'toggle-reaction': { max: 60, windowMs: 60_000 },
   'pin-message': { max: 30, windowMs: 60_000 },
+  'forward-message': { max: 20, windowMs: 10_000 },
+  'global-search': { max: 20, windowMs: 10_000 },
+  'manage-room': { max: 30, windowMs: 60_000 },
 };
 
 function isRateLimited(socket, key) {
@@ -61,14 +64,10 @@ function scheduleRoomReapIfEmpty(roomId, rooms, io) {
   cancelRoomReap(roomId);
   const timer = setTimeout(() => {
     const current = rooms.get(roomId);
-    if (current && current.users.size === 0) {
+    if (current && current.users.size === 0 && (!current.members || current.members.size === 0)) {
       rooms.delete(roomId);
       emptyRoomTimers.delete(roomId);
-      if (!current.isDM) {
-        io.emit('rooms-updated', [...rooms.entries()]
-          .filter(([, r]) => !r.isDM)
-          .map(([id, r]) => ({ id, name: r.name, hasPassword: !!r.password, userCount: r.users.size })));
-      }
+      if (!current.isDM) emitRoomLists(io);
     }
   }, EMPTY_ROOM_GRACE_MS);
   emptyRoomTimers.set(roomId, timer);
@@ -79,6 +78,46 @@ const handle = app.getRequestHandler();
 // In-memory store
 const users = new Map();   // socketId -> { username, roomId, avatar }
 const rooms = new Map();   // roomId -> { name, password, users: Set, messages: [], pinnedMessages: [], isDM: bool }
+const profiles = new Map(); // username -> { avatar }
+
+function findUserSockets(username) {
+  return [...users.entries()].filter(([, user]) => user.username === username).map(([id]) => id);
+}
+
+function roomListFor(username) {
+  return [...rooms.entries()]
+    .filter(([, room]) => !room.isDM)
+    .map(([id, room]) => ({
+      id, name: room.name, description: room.description || '', hasPassword: !!room.password,
+      userCount: room.users.size, role: room.roles?.[username] || null,
+    }));
+}
+
+function emitRoomLists(io) {
+  for (const [socketId, user] of users) io.to(socketId).emit('rooms-updated', roomListFor(user.username));
+}
+
+function canModerate(room, username) {
+  return ['owner', 'admin', 'mod'].includes(room.roles?.[username]);
+}
+
+function canAdminister(room, username) {
+  return ['owner', 'admin'].includes(room.roles?.[username]);
+}
+
+function emitMessageActivity(io, roomId, room, message) {
+  const recipients = room.isDM ? room.dmUsers : [...(room.members || room.users)];
+  for (const recipient of recipients || []) {
+    if (recipient === message.sender) continue;
+    for (const socketId of findUserSockets(recipient)) {
+      io.to(socketId).emit('room-activity', {
+        roomId, roomName: room.name, isDM: !!room.isDM,
+        from: message.sender, preview: message.type === 'text' ? message.content.slice(0, 100) : `[${message.type}]`,
+        messageId: message.id,
+      });
+    }
+  }
+}
 
 function getRoomPublicInfo(roomId) {
   const room = rooms.get(roomId);
@@ -90,9 +129,12 @@ function getRoomPublicInfo(roomId) {
     userCount: room.users.size,
     isDM: !!room.isDM,
     pinnedMessages: room.pinnedMessages || [],
-    users: [...room.users].map(uid => {
+    description: room.description || '',
+    owner: room.owner || null,
+    myRole: null,
+    users: [...(room.members || room.users)].map(uid => {
       const u = [...users.values()].find(u => u.username === uid);
-      return { username: uid, online: !!u };
+      return { username: uid, online: room.users.has(uid) && !!u, avatar: profiles.get(uid)?.avatar || u?.avatar || null, role: room.roles?.[uid] || 'member' };
     }),
   };
 }
@@ -126,20 +168,32 @@ app.prepare().then(() => {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
-    socket.on('set-username', ({ username }) => {
+    socket.on('set-username', ({ username, avatar }) => {
       const trimmed = (username || '').trim().slice(0, 24);
       if (!trimmed) return;
-      users.set(socket.id, { username: trimmed, roomId: null });
-      socket.emit('username-set', { username: trimmed });
+      if (typeof avatar === 'string' && avatar.length <= 2048) profiles.set(trimmed, { avatar });
+      users.set(socket.id, { username: trimmed, roomId: null, avatar: profiles.get(trimmed)?.avatar || null });
+      socket.emit('username-set', { username: trimmed, avatar: profiles.get(trimmed)?.avatar || null });
+    });
+
+    socket.on('update-profile', ({ avatar }, ack) => {
+      const user = getAuthedUser(socket);
+      if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
+      const cleanAvatar = typeof avatar === 'string' && avatar.length <= 2048 ? avatar : null;
+      profiles.set(user.username, { avatar: cleanAvatar });
+      for (const socketId of findUserSockets(user.username)) {
+        const entry = users.get(socketId);
+        if (entry) users.set(socketId, { ...entry, avatar: cleanAvatar });
+      }
+      for (const [roomId, room] of rooms) {
+        if (room.users.has(user.username)) io.to(roomId).emit('room-users', getRoomPublicInfo(roomId));
+      }
+      if (ack) ack({ status: 'ok', avatar: cleanAvatar });
     });
 
     socket.on('get-rooms', () => {
-      const roomList = [...rooms.entries()]
-        .filter(([, r]) => !r.isDM)
-        .map(([id, r]) => ({
-          id, name: r.name, hasPassword: !!r.password, userCount: r.users.size
-        }));
-      socket.emit('rooms-list', roomList);
+      const user = getAuthedUser(socket);
+      socket.emit('rooms-list', roomListFor(user?.username));
     });
 
     socket.on('create-room', ({ roomId, name, password }) => {
@@ -153,12 +207,15 @@ app.prepare().then(() => {
         socket.emit('room-error', { message: 'Room ID already exists' });
         return;
       }
-      rooms.set(roomId, { name, password: password || null, users: new Set(), messages: [], pinnedMessages: [] });
+      const cleanName = (name || '').trim().slice(0, 80);
+      if (!cleanName) { socket.emit('room-error', { message: 'Room name is required' }); return; }
+      rooms.set(roomId, {
+        name: cleanName, description: '', password: password || null, users: new Set(), members: new Set([user.username]),
+        messages: [], pinnedMessages: [], owner: user.username, roles: { [user.username]: 'owner' }, bans: new Set(),
+      });
       scheduleRoomReapIfEmpty(roomId, rooms, io);
       socket.emit('room-created', { roomId, name });
-      io.emit('rooms-updated', [...rooms.entries()]
-        .filter(([, r]) => !r.isDM)
-        .map(([id, r]) => ({ id, name: r.name, hasPassword: !!r.password, userCount: r.users.size })));
+      emitRoomLists(io);
     });
 
     socket.on('join-room', ({ roomId, password }) => {
@@ -172,7 +229,9 @@ app.prepare().then(() => {
 
       const room = rooms.get(roomId);
       if (!room) { socket.emit('room-error', { message: 'Room not found' }); return; }
-      if (room.password && room.password !== password) {
+      if (room.isDM && !room.dmUsers?.includes(username)) { socket.emit('room-error', { message: 'You cannot join this DM' }); return; }
+      if (room.bans?.has(username)) { socket.emit('room-error', { message: 'You are banned from this room' }); return; }
+      if (room.password && room.password !== password && !room.members?.has(username)) {
         socket.emit('room-error', { message: 'Incorrect password' }); return;
       }
 
@@ -190,19 +249,29 @@ app.prepare().then(() => {
       cancelRoomReap(roomId);
       socket.join(roomId);
       room.users.add(username);
+      room.members = room.members || new Set();
+      room.members.add(username);
+      room.roles = room.roles || {};
+      if (!room.roles[username]) room.roles[username] = 'member';
       users.set(socket.id, { ...user, roomId });
 
+      const publicInfo = getRoomPublicInfo(roomId);
+      publicInfo.myRole = room.roles[username] || 'member';
       socket.emit('joined-room', {
         roomId,
         name: room.name,
         isDM: !!room.isDM,
         messages: room.messages.slice(-100),
-        users: getRoomPublicInfo(roomId),
+        users: publicInfo,
         pinnedMessages: room.pinnedMessages || [],
+        description: room.description || '',
+        role: room.roles[username] || 'member',
+        hasMore: room.messages.length > 100,
       });
 
       socket.to(roomId).emit('user-joined', { username, roomId });
       io.to(roomId).emit('room-users', getRoomPublicInfo(roomId));
+      if (!room.isDM) emitRoomLists(io);
     });
 
     socket.on('leave-room', ({ roomId }) => {
@@ -215,6 +284,7 @@ app.prepare().then(() => {
         io.to(roomId).emit('user-left', { username: user.username, roomId });
         io.to(roomId).emit('room-users', getRoomPublicInfo(roomId));
         scheduleRoomReapIfEmpty(roomId, rooms, io);
+        if (!room.isDM) emitRoomLists(io);
       }
       users.set(socket.id, { ...user, roomId: null });
     });
@@ -223,6 +293,7 @@ app.prepare().then(() => {
       const user = getAuthedUser(socket);
       if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
       if (isRateLimited(socket, 'send-message')) { if (ack) ack({ error: 'Too many messages — slow down' }); return; }
+      if (!message || typeof message.roomId !== 'string' || typeof message.id !== 'string') { if (ack) ack({ error: 'Invalid message' }); return; }
       const room = rooms.get(message.roomId);
       if (!room) { if (ack) ack({ error: 'Room not found' }); return; }
       if (user.roomId !== message.roomId || !room.users.has(user.username)) {
@@ -231,28 +302,39 @@ app.prepare().then(() => {
       }
       // Force sender to the socket's authenticated identity — never trust
       // whatever `sender` the client put in the message payload.
-      const fullMessage = { ...message, sender: user.username, status: 'delivered' };
+      const cleanContent = typeof message.content === 'string' ? message.content.slice(0, 50_000) : '';
+      const replySource = message.replyTo?.id ? room.messages.find(item => item.id === message.replyTo.id && !item.deleted) : null;
+      const replyTo = replySource ? {
+        id: replySource.id, sender: replySource.sender,
+        content: replySource.type === 'text' ? replySource.content.slice(0, 240) : `[${replySource.type}]`,
+      } : null;
+      const fullMessage = {
+        ...message, content: cleanContent, sender: user.username, status: 'delivered',
+        readBy: [user.username], replyTo,
+      };
       room.messages.push(fullMessage);
-      if (room.messages.length > 500) room.messages.shift();
+      if (room.messages.length > 2000) room.messages.shift();
 
       // Handle @mentions — notify mentioned users
       if (fullMessage.type === 'text' && fullMessage.content) {
-        const mentions = [...fullMessage.content.matchAll(/@(\w+)/g)].map(m => m[1]);
-        mentions.forEach(mentionedUser => {
-          const mentionedSocket = [...users.entries()].find(([, u]) => u.username === mentionedUser);
-          if (mentionedSocket) {
-            io.to(mentionedSocket[0]).emit('mention-notification', {
+        const mentions = [...fullMessage.content.matchAll(/@([\w-]+)/g)].map(m => m[1]);
+        if (mentions.includes('everyone')) mentions.push(...(room.members || room.users));
+        if (mentions.includes('here')) mentions.push(...room.users);
+        [...new Set(mentions)].filter(name => name !== user.username).forEach(mentionedUser => {
+          findUserSockets(mentionedUser).forEach(socketId => {
+            io.to(socketId).emit('mention-notification', {
               from: fullMessage.sender,
               roomId: fullMessage.roomId,
               roomName: room.name,
               preview: fullMessage.content.slice(0, 80),
               messageId: fullMessage.id,
             });
-          }
+          });
         });
       }
 
       socket.to(message.roomId).emit('new-message', fullMessage);
+      emitMessageActivity(io, message.roomId, room, fullMessage);
       if (ack) ack({ status: 'delivered', messageId: message.id, message: fullMessage });
     });
 
@@ -274,11 +356,12 @@ app.prepare().then(() => {
       if (room) {
         const msg = room.messages.find(m => m.id === messageId);
         if (!msg || msg.sender === user.username) return;
+        msg.readBy = [...new Set([...(msg.readBy || [msg.sender]), user.username])];
         msg.status = 'read';
       } else {
         return;
       }
-      socket.to(roomId).emit('message-read', { messageId, username: user.username });
+      io.to(roomId).emit('message-read', { messageId, username: user.username, readBy: room.messages.find(m => m.id === messageId)?.readBy || [] });
     });
 
     socket.on('send-blob', ({ roomId, message }) => {
@@ -289,6 +372,106 @@ app.prepare().then(() => {
       const fullMessage = { ...message, sender: user.username };
       room.messages.push(fullMessage);
       io.to(roomId).emit('new-message', fullMessage);
+    });
+
+    socket.on('load-more-messages', ({ roomId, before, limit = 50 }, ack) => {
+      const user = getAuthedUser(socket);
+      const room = rooms.get(roomId);
+      if (!user || !room || (!room.members?.has(user.username) && !room.users.has(user.username))) {
+        if (ack) ack({ error: 'Room not found or unavailable' }); return;
+      }
+      const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 100));
+      const cutoff = Number(before) || Date.now();
+      const older = room.messages.filter(message => message.timestamp < cutoff);
+      const page = older.slice(-safeLimit);
+      if (ack) ack({ messages: page, hasMore: older.length > page.length });
+    });
+
+    socket.on('global-search', ({ query }, ack) => {
+      const user = getAuthedUser(socket);
+      if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
+      if (isRateLimited(socket, 'global-search')) { if (ack) ack({ error: 'Too many searches — slow down' }); return; }
+      const term = typeof query === 'string' ? query.trim().toLowerCase().slice(0, 200) : '';
+      if (term.length < 2) { if (ack) ack({ results: [] }); return; }
+      const results = [];
+      for (const [roomId, room] of rooms) {
+        const allowed = room.isDM ? room.dmUsers?.includes(user.username) : room.members?.has(user.username);
+        if (!allowed) continue;
+        for (const message of room.messages) {
+          if (message.deleted || typeof message.content !== 'string' || !message.content.toLowerCase().includes(term)) continue;
+          results.push({ ...message, roomId, roomName: room.name, isDM: !!room.isDM });
+        }
+      }
+      results.sort((a, b) => b.timestamp - a.timestamp);
+      if (ack) ack({ results: results.slice(0, 100) });
+    });
+
+    socket.on('forward-message', ({ sourceRoomId, messageId, targetRoomId }, ack) => {
+      const user = getAuthedUser(socket);
+      if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
+      if (isRateLimited(socket, 'forward-message')) { if (ack) ack({ error: 'Too many forwards — slow down' }); return; }
+      const source = rooms.get(sourceRoomId);
+      const target = rooms.get(targetRoomId);
+      const original = source?.messages.find(message => message.id === messageId && !message.deleted);
+      const targetAllowed = target && (target.isDM ? target.dmUsers?.includes(user.username) : target.members?.has(user.username));
+      const sourceAllowed = source && (source.isDM ? source.dmUsers?.includes(user.username) : source.members?.has(user.username));
+      if (!original || !sourceAllowed || !targetAllowed) { if (ack) ack({ error: 'Message or destination is unavailable' }); return; }
+      const forwarded = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        roomId: targetRoomId, sender: user.username, type: original.type,
+        content: original.content, fileName: original.fileName, fileSize: original.fileSize,
+        timestamp: Date.now(), status: 'delivered', readBy: [user.username],
+        forwardedFrom: { sender: original.sender, roomName: source.name, messageId: original.id },
+      };
+      target.messages.push(forwarded);
+      io.to(targetRoomId).emit('new-message', forwarded);
+      emitMessageActivity(io, targetRoomId, target, forwarded);
+      if (ack) ack({ status: 'ok', message: forwarded });
+    });
+
+    socket.on('manage-room', ({ roomId, action, targetUser, value }, ack) => {
+      const user = getAuthedUser(socket);
+      const room = rooms.get(roomId);
+      const reject = message => { if (ack) ack({ error: message }); };
+      if (!user || !room || room.isDM) { reject('Room not found'); return; }
+      if (isRateLimited(socket, 'manage-room')) { reject('Too many room changes — slow down'); return; }
+      const role = room.roles?.[user.username];
+      if (action === 'update-description') {
+        if (!canModerate(room, user.username)) { reject('Moderator permission required'); return; }
+        room.description = typeof value === 'string' ? value.trim().slice(0, 280) : '';
+      } else if (action === 'set-role') {
+        if (!canAdminister(room, user.username) || role !== 'owner' && value === 'admin') { reject('Administrator permission required'); return; }
+        if (!room.members?.has(targetUser) || targetUser === room.owner || !['member', 'mod', 'admin'].includes(value)) { reject('Invalid role change'); return; }
+        room.roles[targetUser] = value;
+      } else if (action === 'kick' || action === 'ban') {
+        const rank = { member: 0, mod: 1, admin: 2, owner: 3 };
+        const targetRole = room.roles?.[targetUser] || 'member';
+        if (!canModerate(room, user.username) || targetUser === room.owner || rank[role] <= rank[targetRole]) { reject('You cannot moderate this member'); return; }
+        if (action === 'ban') room.bans.add(targetUser);
+        room.users.delete(targetUser);
+        if (action === 'ban') room.members.delete(targetUser);
+        for (const socketId of findUserSockets(targetUser)) {
+          const target = users.get(socketId);
+          if (target?.roomId === roomId) {
+            io.to(socketId).emit('room-removed', { roomId, reason: action === 'ban' ? 'You were banned from the room' : 'You were removed from the room' });
+            io.sockets.sockets.get(socketId)?.leave(roomId);
+            users.set(socketId, { ...target, roomId: null });
+          }
+        }
+      } else if (action === 'transfer-owner') {
+        if (role !== 'owner' || !room.members?.has(targetUser) || targetUser === user.username) { reject('Only the owner can transfer ownership'); return; }
+        room.roles[user.username] = 'admin'; room.roles[targetUser] = 'owner'; room.owner = targetUser;
+      } else if (action === 'delete-room') {
+        if (role !== 'owner') { reject('Only the owner can delete the room'); return; }
+        io.to(roomId).emit('room-removed', { roomId, reason: 'This room was deleted' });
+        for (const [socketId, entry] of users) if (entry.roomId === roomId) users.set(socketId, { ...entry, roomId: null });
+        rooms.delete(roomId); cancelRoomReap(roomId); emitRoomLists(io);
+        if (ack) ack({ status: 'ok' }); return;
+      } else { reject('Unknown room action'); return; }
+      io.to(roomId).emit('room-settings-updated', getRoomPublicInfo(roomId));
+      io.to(roomId).emit('room-users', getRoomPublicInfo(roomId));
+      emitRoomLists(io);
+      if (ack) ack({ status: 'ok', room: getRoomPublicInfo(roomId) });
     });
 
     // ── EDIT MESSAGE ────────────────────────────────────────────────────────
@@ -396,10 +579,13 @@ app.prepare().then(() => {
           name: `DM: ${fromUser} & ${toUser}`,
           password: null,
           users: new Set(),
+          members: new Set([fromUser, toUser]),
           messages: [],
           pinnedMessages: [],
           isDM: true,
           dmUsers: [fromUser, toUser],
+          roles: { [fromUser]: 'member', [toUser]: 'member' },
+          bans: new Set(),
         });
         scheduleRoomReapIfEmpty(roomId, rooms, io);
       }
@@ -431,6 +617,7 @@ app.prepare().then(() => {
           io.to(user.roomId).emit('user-left', { username: user.username });
           io.to(user.roomId).emit('room-users', getRoomPublicInfo(user.roomId));
           scheduleRoomReapIfEmpty(user.roomId, rooms, io);
+          if (!room.isDM) emitRoomLists(io);
         }
       }
       users.delete(socket.id);

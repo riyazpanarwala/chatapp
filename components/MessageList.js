@@ -51,7 +51,7 @@ function FileMessage({ content, fileName, fileSize }) {
 }
 
 function MentionText({ content, currentUsername }) {
-  const parts = content.split(/(@\w+)/g);
+  const parts = content.split(/(@[\w-]+)/g);
   return (
     <p className="bubble-text">
       {parts.map((part, i) => {
@@ -84,7 +84,7 @@ function ReactionBar({ reactions = {}, username, onToggle }) {
   );
 }
 
-function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin, onClose }) {
+function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin, onReply, onForward, onClose }) {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -139,6 +139,8 @@ function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin,
       onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={handleKeyDown}
     >
+      <button role="menuitem" className="ctx-btn" onClick={() => { onReply(); onClose(); }}>↩ Reply</button>
+      <button role="menuitem" className="ctx-btn" onClick={() => { onForward(); onClose(); }}>➜ Forward</button>
       <button role="menuitem" className="ctx-btn" onClick={onReact} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <SmileIcon size={15} /> Add reaction
       </button>
@@ -267,6 +269,40 @@ function DeleteMessageDialog({ message, onConfirm, onCancel }) {
   );
 }
 
+function ForwardDialog({ message, targets, onForward, onCancel }) {
+  const [target, setTarget] = useState('');
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="modal-overlay" onMouseDown={onCancel}>
+      <div className="modal" role="dialog" aria-modal="true" onMouseDown={event => event.stopPropagation()}>
+        <h3>Forward message</h3>
+        <p className="delete-message-preview">{message.type === 'text' ? message.content : `[${message.type}]`}</p>
+        <select className="sidebar-input" value={target} onChange={event => setTarget(event.target.value)} autoFocus>
+          <option value="">Choose a room or DM…</option>
+          {targets.map(item => <option key={item.id} value={item.id}>{item.isDM ? 'DM · ' : '# '}{item.name}</option>)}
+        </select>
+        <div className="modal-actions">
+          <button className="cancel-btn" onClick={onCancel}>Cancel</button>
+          <button className="create-btn" disabled={!target} onClick={() => onForward(target)}>Forward</button>
+        </div>
+      </div>
+    </div>, document.body
+  );
+}
+
+function LinkPreviews({ content }) {
+  const urls = [...new Set((content || '').match(/https?:\/\/[^\s<]+/gi) || [])].slice(0, 2);
+  if (!urls.length) return null;
+  return <div className="link-preview-list">{urls.map(url => {
+    let host = url;
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+    return <a key={url} className="link-preview" href={url} target="_blank" rel="noopener noreferrer">
+      <span className="link-preview-host">{host}</span>
+      <span className="link-preview-url">{url}</span>
+    </a>;
+  })}</div>;
+}
+
 function MessageListSkeleton() {
   return (
     <div className="message-list message-list-skeleton" aria-busy="true" aria-label="Loading messages">
@@ -320,7 +356,8 @@ function EditBubble({ initialContent, onSave, onCancel }) {
 export default function MessageList({
   messages, username, pinnedMessages = [],
   onDeleteMessage, onEditMessage, onToggleReaction, onPinMessage,
-  onMessageRead, searchQuery, currentRoom,
+  onMessageRead, onReplyMessage, onForwardMessage, forwardTargets = [],
+  onLoadMore, hasMoreMessages, isLoadingOlder, searchQuery, currentRoom, roomUsers = [],
   isLoading = false,
 }) {
   const listRef = useRef(null);
@@ -331,6 +368,7 @@ export default function MessageList({
   const [editingId, setEditingId] = useState(null);
   const [showPinned, setShowPinned] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const [forwardCandidate, setForwardCandidate] = useState(null);
 
   useEffect(() => {
     if (!searchQuery) {
@@ -404,6 +442,12 @@ export default function MessageList({
   return (
     <div className="message-list" ref={listRef}>
 
+      {(hasMoreMessages || isLoadingOlder) && !searchQuery && (
+        <button className="load-more-btn" onClick={onLoadMore} disabled={isLoadingOlder}>
+          {isLoadingOlder ? 'Loading history…' : 'Load older messages'}
+        </button>
+      )}
+
       {/* Pinned banner */}
       {pinnedMessages.length > 0 && (
         <div className="pinned-banner" onClick={() => setShowPinned(s => !s)}>
@@ -469,14 +513,22 @@ export default function MessageList({
             {showDate && <div className="date-divider"><span>{msgDate}</span></div>}
 
             <div
+              id={`message-${msg.id}`}
               className={`msg-wrapper ${isSelf ? 'self' : 'other'} ${isPinned ? 'is-pinned' : ''}`}
               onContextMenu={(e) => !msg.deleted && openContextMenu(e, msg)}
             >
-              {!isSelf && <div className="avatar">{msg.sender?.[0]?.toUpperCase()}</div>}
+              {!isSelf && <div className="avatar">{roomUsers.find(user => user.username === msg.sender)?.avatar
+                ? <img src={roomUsers.find(user => user.username === msg.sender).avatar} alt="" />
+                : msg.sender?.[0]?.toUpperCase()}</div>}
 
               <div className="bubble-col">
                 <div className={`bubble ${isSelf ? 'bubble-self' : 'bubble-other'} ${msg.status === 'pending' ? 'pending' : ''}`}>
                   {!isSelf && !msg.deleted && <span className="bubble-sender">{msg.sender}</span>}
+
+                  {msg.forwardedFrom && <div className="forwarded-label">Forwarded from {msg.forwardedFrom.sender}</div>}
+                  {msg.replyTo && <button className="reply-quote" type="button" onClick={() => document.getElementById(`message-${msg.replyTo.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
+                    <strong>{msg.replyTo.sender}</strong><span>{msg.replyTo.content}</span>
+                  </button>}
 
                   {isEditing ? (
                     <EditBubble
@@ -487,7 +539,7 @@ export default function MessageList({
                   ) : msg.deleted ? (
                     <p className="bubble-text deleted-msg">This message was deleted</p>
                   ) : msg.type === 'text' ? (
-                    <MentionText content={msg.content} currentUsername={username} />
+                    <><MentionText content={msg.content} currentUsername={username} /><LinkPreviews content={msg.content} /></>
                   ) : (msg.type === 'image' || msg.type === 'screenshot') ? (
                     <ImageMessage content={msg.content} fileName={msg.fileName} />
                   ) : msg.type === 'audio' ? (
@@ -502,6 +554,11 @@ export default function MessageList({
                       {isPinned && <span className="pinned-label"><PinIcon size={10} /></span>}
                       <span className="bubble-time">{formatTime(msg.timestamp)}</span>
                       {isSelf && <StatusIcon status={msg.status} />}
+                    </div>
+                  )}
+                  {isSelf && msg.readBy?.some(user => user !== username) && (
+                    <div className="read-by" title={msg.readBy.filter(user => user !== username).join(', ')}>
+                      Read by {msg.readBy.filter(user => user !== username).join(', ')}
                     </div>
                   )}
                 </div>
@@ -547,6 +604,8 @@ export default function MessageList({
           isPinned={pinnedMessages.some(p => p.id === contextMenu.msg.id)}
           onDelete={() => setDeleteCandidate(contextMenu.msg)}
           onEdit={() => setEditingId(contextMenu.msg.id)}
+          onReply={() => onReplyMessage?.(contextMenu.msg)}
+          onForward={() => setForwardCandidate(contextMenu.msg)}
           onReact={() => {
             const msg = contextMenu.msg;
             const rect = contextMenu;
@@ -577,6 +636,17 @@ export default function MessageList({
           onConfirm={() => {
             onDeleteMessage(deleteCandidate.id);
             setDeleteCandidate(null);
+          }}
+        />
+      )}
+      {forwardCandidate && (
+        <ForwardDialog
+          message={forwardCandidate}
+          targets={forwardTargets.filter(item => item.id !== currentRoom?.id)}
+          onCancel={() => setForwardCandidate(null)}
+          onForward={async targetId => {
+            await onForwardMessage?.(forwardCandidate.id, targetId);
+            setForwardCandidate(null);
           }}
         />
       )}

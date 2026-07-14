@@ -73,3 +73,11 @@ pending → sent → delivered → read
 - Screenshot sharing (getDisplayMedia)
 - Emoji picker (emoji-picker-react)
 - Mobile-responsive layout
+- Quote replies with linked message context
+- Per-user group read receipts and per-conversation unread badges
+- Paginated history with older-message loading
+- URL preview cards and global cross-room/DM message search
+- Room ownership, descriptions, admins/moderators, kick/ban, transfer, and deletion
+- `@everyone` and `@here` notification mentions
+- Uploaded profile pictures shown throughout member and message views
+- Message forwarding between joined rooms and direct messages

@@ -4,6 +4,8 @@ import Sidebar from '../components/Sidebar';
 import MessageList from '../components/MessageList';
 import InputBar from '../components/InputBar';
 import UsernameScreen from '../components/UsernameScreen';
+import GlobalSearch from '../components/GlobalSearch';
+import RoomSettings from '../components/RoomSettings';
 import { useState, useEffect } from 'react';
 import { MessageIcon, MailIcon, SearchIcon, BellIcon, XIcon } from '../lib/icons';
 
@@ -17,14 +19,32 @@ export default function Home() {
     onlineUsers,
     notifications, dismissNotification,
     dmList,
+    unreadCounts,
     searchQuery, setSearchQuery,
+    globalSearchResults, isGlobalSearching, searchAllMessages,
+    hasMoreMessages, isLoadingOlder, loadMoreMessages,
+    avatar, updateAvatar,
     joinRoom, createRoom, sendMessage, handleTyping, leaveRoom,
     editMessage, deleteMessage, markMessageRead, toggleReaction, pinMessage,
-    openDM,
+    openDM, forwardMessage, manageRoom,
   } = useChat();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSearch, setShowSearch] = useState(false);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [showRoomSettings, setShowRoomSettings] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [pendingJump, setPendingJump] = useState(null);
+
+  useEffect(() => { setReplyingTo(null); setShowRoomSettings(false); }, [currentRoom?.id]);
+  useEffect(() => {
+    if (!pendingJump || currentRoom?.id !== pendingJump.roomId) return;
+    const timer = setTimeout(() => {
+      document.getElementById(`message-${pendingJump.messageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setPendingJump(null);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [pendingJump, currentRoom?.id, messages.length]);
 
   useEffect(() => {
     const saved = localStorage.getItem('chat_sidebar_open');
@@ -119,10 +139,13 @@ export default function Home() {
             isOnline={isOnline}
             onlineUsers={onlineUsers}
             dmList={dmList}
+            unreadCounts={unreadCounts}
+            avatar={avatar}
             onJoinRoom={joinRoom}
             onCreateRoom={createRoom}
             onLeaveRoom={leaveRoom}
             onOpenDM={openDM}
+            onUpdateAvatar={updateAvatar}
           />
         )}
 
@@ -147,6 +170,7 @@ export default function Home() {
                   <span className="chat-room-meta">
                     {roomUsers.filter(u => u.online).length} online · {roomUsers.length} members
                   </span>
+                  {currentRoom.description && <span className="chat-room-description">{currentRoom.description}</span>}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -166,6 +190,10 @@ export default function Home() {
                   >
                     <SearchIcon size={16} />
                   </button>
+                  <button className="icon-btn" title="Search everywhere" onClick={() => setShowGlobalSearch(true)}>⌕</button>
+                  {!currentRoom.isDM && ['owner', 'admin', 'mod'].includes(currentRoom.role) && (
+                    <button className="icon-btn" title="Room management" onClick={() => setShowRoomSettings(true)}>⚙</button>
+                  )}
                 </div>
               </div>
 
@@ -196,7 +224,17 @@ export default function Home() {
                 onToggleReaction={toggleReaction}
                 onPinMessage={pinMessage}
                 currentRoom={currentRoom}
+                roomUsers={roomUsers}
                 isLoading={isJoiningRoom}
+                hasMoreMessages={hasMoreMessages}
+                isLoadingOlder={isLoadingOlder}
+                onLoadMore={loadMoreMessages}
+                onReplyMessage={setReplyingTo}
+                onForwardMessage={forwardMessage}
+                forwardTargets={[
+                  ...rooms.map(room => ({ id: room.id, name: room.name, isDM: false })),
+                  ...dmList.map(dm => ({ id: dm.roomId, name: dm.with, isDM: true })),
+                ]}
               />
 
               <InputBar
@@ -206,11 +244,25 @@ export default function Home() {
                 onSendMessage={sendMessage}
                 onTyping={handleTyping}
                 disabled={isJoiningRoom}
+                replyingTo={replyingTo}
+                onCancelReply={() => setReplyingTo(null)}
               />
             </>
           )}
         </main>
       </div>
+      {showGlobalSearch && (
+        <GlobalSearch
+          results={globalSearchResults}
+          loading={isGlobalSearching}
+          onSearch={searchAllMessages}
+          onClose={() => setShowGlobalSearch(false)}
+          onOpen={(roomId, messageId) => { setPendingJump({ roomId, messageId }); joinRoom(roomId, ''); }}
+        />
+      )}
+      {showRoomSettings && currentRoom && (
+        <RoomSettings room={currentRoom} users={roomUsers} username={username} onManage={manageRoom} onClose={() => setShowRoomSettings(false)} />
+      )}
     </div>
   );
 }
