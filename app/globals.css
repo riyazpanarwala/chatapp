@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+@import 'https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap';
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -30,6 +30,7 @@
   --volt-glow: rgba(199, 255, 77, 0.4);
 
   --green: #34d399;
+  --green-rgb: 52, 211, 153;
   --red: #f5636b;
   --yellow: #f5b942;
 
@@ -317,7 +318,7 @@ html, body {
   border-bottom-left-radius: 5px;
 }
 .bubble-sender { display: block; font-size: 11px; font-weight: 700; color: var(--accent); margin-bottom: 3px; font-family: var(--font-display); }
-.bubble-text { word-break: break-word; white-space: pre-wrap; }
+.bubble-text { overflow-wrap: break-word; white-space: pre-wrap; }
 .bubble-meta { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 5px; }
 .bubble-time { font-size: 10px; color: rgba(255,255,255,0.45); font-family: var(--font-mono); }
 .edited-label { font-size: 10px; color: rgba(255,255,255,0.35); font-style: italic; }
@@ -461,9 +462,9 @@ html, body {
   border-radius: var(--radius); padding: 13px 15px;
   box-shadow: 0 16px 48px rgba(0,0,0,0.5);
   display: flex; align-items: flex-start; gap: 10px;
-  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
-@keyframes slideIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes slide-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
 .notif-body { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; }
 .notif-icon { font-size: 18px; flex-shrink: 0; }
 .notif-text { font-size: 13px; }
@@ -570,13 +571,7 @@ html, body {
   box-shadow: 0 8px 30px rgba(91, 110, 245, 0.4);
   position: relative;
 }
-.logo-mark::before {
-  content: ''; position: absolute; inset: 0; border-radius: 16px;
-  display: flex;
-  background-image:
-    linear-gradient(currentColor, currentColor);
-}
-/* signal-bars signature mark, built from the emoji fallback via ::after so no markup change is required */
+/* signal-bars signature mark, drawn entirely with ::after so no markup change is required */
 .logo-mark { font-size: 0; color: white; }
 .logo-mark::after {
   content: '';
@@ -648,10 +643,10 @@ html, body {
   transition: background 0.15s, color 0.15s, box-shadow 0.2s;
 }
 .video-call-btn:not(:disabled):hover {
-  background: rgba(52, 211, 153, 0.14) !important;
-  color: #34d399 !important;
-  border-color: rgba(52, 211, 153, 0.4) !important;
-  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.15);
+  background: rgba(var(--green-rgb), 0.14) !important;
+  color: var(--green) !important;
+  border-color: rgba(var(--green-rgb), 0.4) !important;
+  box-shadow: 0 0 0 3px rgba(var(--green-rgb), 0.15);
 }
 .video-call-btn.calling {
   animation: vc-pulse-btn 1s infinite;
@@ -681,8 +676,8 @@ html, body {
   align-items: center;
   gap: 14px;
   padding: 15px 19px;
-  background: linear-gradient(135deg, rgba(52, 211, 153, 0.09) 0%, rgba(91, 110, 245, 0.06) 100%);
-  border: 1px solid rgba(52, 211, 153, 0.25);
+  background: linear-gradient(135deg, rgba(var(--green-rgb), 0.09) 0%, rgba(91, 110, 245, 0.06) 100%);
+  border: 1px solid rgba(var(--green-rgb), 0.25);
   border-radius: var(--radius);
   width: 100%;
   max-width: 420px;
@@ -695,7 +690,7 @@ html, body {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(52, 211, 153, 0.05) 0%, transparent 60%);
+  background: linear-gradient(90deg, rgba(var(--green-rgb), 0.05) 0%, transparent 60%);
   pointer-events: none;
 }
 .video-call-card.expired {
@@ -724,7 +719,7 @@ html, body {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 2px solid rgba(52, 211, 153, 0.5);
+  border: 2px solid rgba(var(--green-rgb), 0.5);
   animation: vc-ring 1.8s ease-out infinite;
 }
 @keyframes vc-ring {
@@ -752,7 +747,7 @@ html, body {
 }
 .vc-timer {
   font-family: var(--font-mono);
-  color: #34d399;
+  color: var(--green);
   font-size: 12px;
   font-weight: 700;
 }
@@ -775,23 +770,23 @@ html, body {
   font-family: var(--font-display);
 }
 .vc-join-btn {
-  background: #34d399;
+  background: var(--green);
   color: #062015;
   border: none;
 }
 .vc-join-btn:hover {
   background: #2bbd87;
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(52, 211, 153, 0.35);
+  box-shadow: 0 6px 18px rgba(var(--green-rgb), 0.35);
 }
 .vc-rejoin-btn {
-  background: rgba(52, 211, 153, 0.1);
-  color: #34d399;
-  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(var(--green-rgb), 0.1);
+  color: var(--green);
+  border: 1px solid rgba(var(--green-rgb), 0.35);
 }
 .vc-rejoin-btn:hover {
-  background: rgba(52, 211, 153, 0.18);
-  border-color: #34d399;
+  background: rgba(var(--green-rgb), 0.18);
+  border-color: var(--green);
 }
 
 /* ── Icon alignment helpers (added when swapping emoji for inline SVG icons) ── */

@@ -50,7 +50,7 @@ export default function Home() {
             : 'Offline — messages will sync when back online'}
         </span>
         {error && (
-          <span className="error-msg">{error} <button onClick={() => setError('')}><XIcon size={12} /></button></span>
+          <span className="error-msg">{error} <button onClick={() => setError('')} aria-label="Dismiss error"><XIcon size={12} /></button></span>
         )}
       </div>
 
@@ -80,7 +80,7 @@ export default function Home() {
                     Open
                   </button>
                 )}
-                <button className="notif-close" onClick={() => dismissNotification(n.id)}><XIcon size={12} /></button>
+                <button className="notif-close" onClick={() => dismissNotification(n.id)} aria-label="Dismiss notification"><XIcon size={12} /></button>
               </div>
             </div>
           ))}
@@ -160,7 +160,7 @@ export default function Home() {
                     autoFocus
                   />
                   {searchQuery && (
-                    <button className="search-clear" onClick={() => setSearchQuery('')}><XIcon size={13} /></button>
+                    <button className="search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search"><XIcon size={13} /></button>
                   )}
                 </div>
               )}

@@ -120,7 +120,7 @@ function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin,
       style={{ position: 'fixed', zIndex: 9999, top: pos.y, left: pos.x }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <button className="ctx-btn" onMouseDown={() => { onReact(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      <button className="ctx-btn" onMouseDown={() => { onReact(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <SmileIcon size={15} /> Add reaction
       </button>
       <button className="ctx-btn" onMouseDown={() => { onPin(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
