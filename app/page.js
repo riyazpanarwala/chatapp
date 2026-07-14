@@ -5,6 +5,7 @@ import MessageList from '../components/MessageList';
 import InputBar from '../components/InputBar';
 import UsernameScreen from '../components/UsernameScreen';
 import { useState, useEffect } from 'react';
+import { MessageIcon, MailIcon, SearchIcon, BellIcon, XIcon } from '../lib/icons';
 
 export default function Home() {
   const {
@@ -42,13 +43,14 @@ export default function Home() {
     <div className="app-layout">
       {/* Status bar */}
       <div className={`status-bar ${isOnline ? 'online' : 'offline'}`}>
-        <span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <span className={`status-dot ${isOnline && isConnected ? 'online' : 'offline'}`} />
           {isOnline
-            ? (isConnected ? '🟢 Connected' : '🟡 Connecting...')
-            : '🔴 Offline — messages will sync when back online'}
+            ? (isConnected ? 'Connected' : 'Connecting…')
+            : 'Offline — messages will sync when back online'}
         </span>
         {error && (
-          <span className="error-msg">⚠️ {error} <button onClick={() => setError('')}>✕</button></span>
+          <span className="error-msg">{error} <button onClick={() => setError('')} aria-label="Dismiss error"><XIcon size={12} /></button></span>
         )}
       </div>
 
@@ -58,7 +60,7 @@ export default function Home() {
           {notifications.slice(0, 3).map(n => (
             <div key={n.id} className="notif-toast">
               <div className="notif-body">
-                <span className="notif-icon">{n.type === 'mention' ? '🔔' : '💌'}</span>
+                <span className="notif-icon">{n.type === 'mention' ? <BellIcon size={17} /> : <MailIcon size={17} />}</span>
                 <div className="notif-text">
                   <strong>{n.from}</strong>
                   {n.type === 'mention'
@@ -78,7 +80,7 @@ export default function Home() {
                     Open
                   </button>
                 )}
-                <button className="notif-close" onClick={() => dismissNotification(n.id)}>✕</button>
+                <button className="notif-close" onClick={() => dismissNotification(n.id)} aria-label="Dismiss notification"><XIcon size={12} /></button>
               </div>
             </div>
           ))}
@@ -109,7 +111,7 @@ export default function Home() {
         <main className="chat-main">
           {!currentRoom ? (
             <div className="empty-state">
-              <div className="empty-icon">💬</div>
+              <div className="empty-icon"><MessageIcon size={30} /></div>
               <h2>Welcome, {username}!</h2>
               <p>Select a room from the sidebar or create a new one to start chatting.</p>
               {rooms.length === 0 && <p className="empty-hint">No rooms yet — create the first one!</p>}
@@ -119,8 +121,8 @@ export default function Home() {
               {/* Chat header */}
               <div className="chat-header">
                 <div className="chat-header-info">
-                  <span className="chat-room-name">
-                    {currentRoom.isDM ? '💌' : '💬'} {currentRoom.name}
+                  <span className="chat-room-name" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {currentRoom.isDM ? <MailIcon size={16} /> : <MessageIcon size={16} />} {currentRoom.name}
                   </span>
                   <span className="chat-room-meta">
                     {roomUsers.filter(u => u.online).length} online · {roomUsers.length} members
@@ -142,7 +144,7 @@ export default function Home() {
                     onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(''); }}
                     style={{ marginLeft: 8 }}
                   >
-                    🔍
+                    <SearchIcon size={16} />
                   </button>
                 </div>
               </div>
@@ -158,7 +160,7 @@ export default function Home() {
                     autoFocus
                   />
                   {searchQuery && (
-                    <button className="search-clear" onClick={() => setSearchQuery('')}>✕</button>
+                    <button className="search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search"><XIcon size={13} /></button>
                   )}
                 </div>
               )}

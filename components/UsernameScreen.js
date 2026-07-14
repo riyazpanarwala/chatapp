@@ -13,9 +13,9 @@ export default function UsernameScreen({ onSetUsername }) {
   return (
     <div className="username-screen">
       <div className="username-card">
-        <div className="logo-mark">⚡</div>
+        <div className="logo-mark" aria-hidden="true" />
         <h1 className="logo-text">FluxChat</h1>
-        <p className="logo-sub">Real-time · Offline-first · Encrypted</p>
+        <p className="logo-sub">REAL-TIME · OFFLINE-FIRST · ENCRYPTED</p>
         <div className="username-form">
           <input
             className="username-input"

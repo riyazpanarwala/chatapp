@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { VideoIcon, VideoOffIcon } from '../lib/icons';
 
 const WEBRTC_BASE = 'https://webrtc-video-app-one.vercel.app';
 
@@ -36,7 +37,7 @@ export default function VideoCallNotification({ message, username, isSelf }) {
   return (
     <div className={`video-call-card ${expired ? 'expired' : ''}`}>
       <div className="vc-icon-wrap">
-        <span className="vc-icon">{expired ? '📵' : '📹'}</span>
+        <span className="vc-icon">{expired ? <VideoOffIcon size={20} /> : <VideoIcon size={20} />}</span>
         {!expired && <span className="vc-pulse" />}
       </div>
       <div className="vc-info">

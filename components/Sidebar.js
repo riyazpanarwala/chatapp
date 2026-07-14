@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { MessageIcon, LockIcon, MailIcon, PlusIcon, XIcon } from '../lib/icons';
 
 export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnline, onlineUsers, dmList, onJoinRoom, onCreateRoom, onLeaveRoom, onOpenDM }) {
   const [view, setView] = useState('rooms'); // rooms | users | create | dms
@@ -38,7 +39,9 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
           <span className="username-label">{username || 'Anonymous'}</span>
         </div>
         {currentRoom && (
-          <button onClick={onLeaveRoom} className="leave-btn" title="Leave Room">✕</button>
+          <button onClick={onLeaveRoom} className="leave-btn" title="Leave Room">
+            <XIcon size={13} />
+          </button>
         )}
       </div>
 
@@ -52,7 +55,9 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
         <button className={`tab ${view === 'dms' ? 'active' : ''}`} onClick={() => setView('dms')}>
           DMs {dmList.length > 0 && <span className="badge">{dmList.length}</span>}
         </button>
-        <button className={`tab ${view === 'create' ? 'active' : ''}`} onClick={() => setView('create')}>+</button>
+        <button className={`tab ${view === 'create' ? 'active' : ''}`} onClick={() => setView('create')} title="Create room" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <PlusIcon size={15} />
+        </button>
       </div>
 
       <div className="sidebar-body">
@@ -66,7 +71,7 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
                 className={`room-item ${currentRoom?.id === room.id ? 'active' : ''}`}
                 onClick={() => handleJoin(room)}
               >
-                <div className="room-icon">{room.hasPassword ? '🔒' : '💬'}</div>
+                <div className="room-icon">{room.hasPassword ? <LockIcon size={14} /> : <MessageIcon size={14} />}</div>
                 <div className="room-info">
                   <span className="room-name">{room.name}</span>
                   <span className="room-meta">{room.userCount} online</span>
@@ -92,7 +97,7 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
                       title={`Message ${u.username}`}
                       onClick={() => { onOpenDM(u.username); }}
                     >
-                      ✉
+                      <MailIcon size={13} />
                     </button>
                   )
                 }
@@ -106,7 +111,7 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
           <div className="room-list">
             <p className="section-title">Direct Messages</p>
             {dmList.length === 0 && (
-              <p className="empty-hint">No DMs yet. Click ✉ next to a user in a room.</p>
+              <p className="empty-hint">No DMs yet. Click the mail icon next to a user in a room.</p>
             )}
             {dmList.map(dm => (
               <div
@@ -114,7 +119,7 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
                 className={`room-item ${currentRoom?.id === dm.roomId ? 'active' : ''}`}
                 onClick={() => onJoinRoom(dm.roomId, '')}
               >
-                <div className="room-icon">💌</div>
+                <div className="room-icon"><MailIcon size={14} /></div>
                 <div className="room-info">
                   <span className="room-name">{dm.with}</span>
                   <span className="room-meta">Direct message</span>
@@ -170,7 +175,9 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
       {showPasswordPrompt && (
         <div className="modal-overlay" onClick={() => setShowPasswordPrompt(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>🔒 {showPasswordPrompt.name}</h3>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <LockIcon size={16} /> {showPasswordPrompt.name}
+            </h3>
             <p>This room requires a password</p>
             <input
               className="sidebar-input"
