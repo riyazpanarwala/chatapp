@@ -1,10 +1,7 @@
 'use client';
 import { useState, useRef, useCallback, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { v4 as uuidv4 } from 'uuid';
 import { SmileIcon, PaperclipIcon, MicIcon, StopIcon, MonitorIcon, VideoIcon, SendIcon, ClockIcon } from '../lib/icons';
-
-const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
 const WEBRTC_BASE = 'https://webrtc-video-app-one.vercel.app';
 
@@ -12,9 +9,10 @@ function buildVideoCallUrl(roomId, userName) {
   return `${WEBRTC_BASE}/join/${encodeURIComponent(roomId)}?name=${encodeURIComponent(userName)}`;
 }
 
-export default function InputBar({ currentRoom, username, roomUsers, onSendMessage, onTyping, disabled }) {
+export default function InputBar({ currentRoom, username, roomUsers, onSendMessage, onTyping, disabled, replyingTo, onCancelReply }) {
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [EmojiPicker, setEmojiPicker] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [mentionQuery, setMentionQuery] = useState(null);
@@ -26,6 +24,35 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const emojiImportRef = useRef(null);
+  const emojiPopupRef = useRef(null);
+  const emojiToggleRef = useRef(null);
+
+  useEffect(() => {
+    if (!showEmoji) return;
+    const handleOutside = (event) => {
+      if (!emojiPopupRef.current?.contains(event.target) && !emojiToggleRef.current?.contains(event.target)) setShowEmoji(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [showEmoji]);
+
+  const toggleEmojiPicker = useCallback(async () => {
+    if (showEmoji) {
+      setShowEmoji(false);
+      return;
+    }
+    setShowEmoji(true);
+    if (!emojiImportRef.current) {
+      emojiImportRef.current = import('emoji-picker-react');
+    }
+    const module = await emojiImportRef.current;
+    setEmojiPicker(() => module.default);
+  }, [showEmoji]);
 
   // Detect @mention typing
   const detectMention = useCallback((value, cursorPos) => {
@@ -34,9 +61,11 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     if (match) {
       const query = match[1].toLowerCase();
       const start = beforeCursor.length - match[0].length;
-      const results = (roomUsers || [])
+      const specialMentions = currentRoom?.isDM ? [] : ['everyone', 'here'];
+      const results = [...specialMentions, ...(roomUsers || [])
         .map(u => u.username)
-        .filter(u => u !== username && u.toLowerCase().startsWith(query))
+        .filter(u => u !== username)]
+        .filter(u => u.toLowerCase().startsWith(query))
         .slice(0, 5);
       setMentionQuery({ query, start, full: match[0] });
       setMentionResults(results);
@@ -45,7 +74,7 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
       setMentionQuery(null);
       setMentionResults([]);
     }
-  }, [roomUsers, username]);
+  }, [roomUsers, username, currentRoom?.isDM]);
 
   const insertMention = useCallback((selectedUser) => {
     if (!mentionQuery) return;
@@ -64,12 +93,17 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
 
   const send = useCallback(() => {
     if (!text.trim() || disabled) return;
-    onSendMessage(text.trim(), 'text');
+    onSendMessage(text.trim(), 'text', replyingTo ? { replyTo: {
+      id: replyingTo.id,
+      sender: replyingTo.sender,
+      content: replyingTo.type === 'text' ? replyingTo.content.slice(0, 240) : `[${replyingTo.type}]`,
+    } } : {});
     setText('');
     setShowEmoji(false);
     setMentionQuery(null);
     setMentionResults([]);
-  }, [text, disabled, onSendMessage]);
+    onCancelReply?.();
+  }, [text, disabled, onSendMessage, replyingTo, onCancelReply]);
 
   // ── Video Call ─────────────────────────────────────────────────────────────
   const startVideoCall = useCallback(async () => {
@@ -100,6 +134,8 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     if (mentionResults.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => (i + 1) % mentionResults.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => (i - 1 + mentionResults.length) % mentionResults.length); return; }
+      if (e.key === 'Home') { e.preventDefault(); setMentionIndex(0); return; }
+      if (e.key === 'End') { e.preventDefault(); setMentionIndex(mentionResults.length - 1); return; }
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionResults[mentionIndex]); return; }
       if (e.key === 'Escape') { setMentionQuery(null); setMentionResults([]); return; }
     }
@@ -107,8 +143,12 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
-    } else {
-      onTyping?.();
+    }
+
+    if (e.key === 'Escape' && showEmoji) {
+      e.preventDefault();
+      setShowEmoji(false);
+      return;
     }
   };
 
@@ -116,6 +156,7 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     const val = e.target.value;
     setText(val);
     detectMention(val, e.target.selectionStart);
+    if (val.trim()) onTyping?.();
   };
 
   const onEmojiClick = (emojiData) => {
@@ -127,23 +168,23 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     const files = Array.from(e.target.files);
     if (!files.length) return;
     for (const file of files) {
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`${file.name} exceeds the 10 MB upload limit.`);
+        continue;
+      }
       const formData = new FormData();
       formData.append('file', file);
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
         if (data.files?.[0]) {
           const f = data.files[0];
           const type = file.type.startsWith('image/') ? 'image' : 'file';
           onSendMessage(f.url, type, { fileName: f.name, fileSize: f.size });
         }
       } catch (err) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const type = file.type.startsWith('image/') ? 'image' : 'file';
-          onSendMessage(reader.result, type, { fileName: file.name, fileSize: file.size });
-        };
-        reader.readAsDataURL(file);
+        alert(err.message || `Could not upload ${file.name}`);
       }
     }
     e.target.value = '';
@@ -202,19 +243,39 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
 
   return (
     <div className="input-bar-wrapper">
+      {replyingTo && (
+        <div className="reply-composer">
+          <div><strong>Replying to {replyingTo.sender}</strong><span>{replyingTo.type === 'text' ? replyingTo.content : `[${replyingTo.type}]`}</span></div>
+          <button type="button" onClick={onCancelReply} aria-label="Cancel reply">×</button>
+        </div>
+      )}
       {showEmoji && (
-        <div className="emoji-popup">
-          <EmojiPicker onEmojiClick={onEmojiClick} width="100%" height={350} theme="dark" />
+        <div ref={emojiPopupRef} className="emoji-popup" id="emoji-picker-popup" role="dialog" aria-label="Choose an emoji">
+          {EmojiPicker ? (
+            <EmojiPicker
+              onEmojiClick={onEmojiClick}
+              width="100%"
+              height={350}
+              theme="dark"
+              lazyLoadEmojis
+              previewConfig={{ showPreview: false }}
+            />
+          ) : (
+            <div className="emoji-picker-loading" aria-busy="true">Loading emoji…</div>
+          )}
         </div>
       )}
 
       {/* @mention autocomplete */}
       {mentionResults.length > 0 && (
-        <div className="mention-popup">
+        <div className="mention-popup" id="mention-listbox" role="listbox" aria-label="Mention someone">
           <div className="mention-header">Mention someone</div>
           {mentionResults.map((u, i) => (
             <div
               key={u}
+              id={`mention-option-${i}`}
+              role="option"
+              aria-selected={i === mentionIndex}
               className={`mention-item ${i === mentionIndex ? 'active' : ''}`}
               onMouseDown={(e) => { e.preventDefault(); insertMention(u); }}
             >
@@ -226,7 +287,16 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
       )}
 
       <div className="input-bar">
-        <button className="icon-btn" onClick={() => setShowEmoji(s => !s)} title="Emoji">
+        <button
+          ref={emojiToggleRef}
+          className="icon-btn"
+          onClick={toggleEmojiPicker}
+          title="Emoji"
+          aria-label="Choose an emoji"
+          aria-expanded={showEmoji}
+          aria-controls="emoji-picker-popup"
+          aria-haspopup="dialog"
+        >
           <SmileIcon size={17} />
         </button>
 
@@ -244,13 +314,24 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
               value={text}
               onChange={handleChange}
               onKeyDown={handleKey}
+              aria-autocomplete="list"
+              aria-controls={mentionResults.length > 0 ? 'mention-listbox' : undefined}
+              aria-expanded={mentionResults.length > 0}
+              aria-activedescendant={mentionResults.length > 0 ? `mention-option-${mentionIndex}` : undefined}
               rows={1}
               disabled={disabled}
             />
           )}
         </div>
 
-        <input ref={fileInputRef} type="file" multiple accept="*/*" onChange={handleFileChange} style={{ display: 'none' }} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+          onChange={handleFileChange}
+          style={{ display: 'none' }}
+        />
         <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Attach file">
           <PaperclipIcon size={17} />
         </button>

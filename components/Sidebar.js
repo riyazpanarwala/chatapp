@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { MessageIcon, LockIcon, MailIcon, PlusIcon, XIcon } from '../lib/icons';
 
-export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnline, onlineUsers, dmList, onJoinRoom, onCreateRoom, onLeaveRoom, onOpenDM }) {
+export default function Sidebar({ rooms, currentRoom, roomUsers, username, avatar, unreadCounts = {}, isOnline, onlineUsers, dmList, onJoinRoom, onCreateRoom, onLeaveRoom, onOpenDM, onUpdateAvatar }) {
   const [view, setView] = useState('rooms'); // rooms | users | create | dms
   const [joinPassword, setJoinPassword] = useState('');
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(null);
@@ -31,10 +31,30 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
 
   const otherOnlineUsers = (onlineUsers || []).filter(u => u !== username);
 
+  const handleAvatar = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) return;
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch('/api/avatar', { method: 'POST', body: form });
+      const data = await response.json();
+      if (response.ok && data.files?.[0]?.url) onUpdateAvatar(data.files[0].url);
+    } catch (error) {
+      console.error('Avatar upload failed:', error);
+    }
+  };
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
         <div className="user-badge">
+          <label className="profile-avatar" title="Change profile picture">
+            {avatar ? <img src={avatar} alt="" /> : username?.[0]?.toUpperCase()}
+            <input type="file" accept="image/*" onChange={handleAvatar} hidden />
+          </label>
           <div className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
           <span className="username-label">{username || 'Anonymous'}</span>
         </div>
@@ -76,6 +96,7 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
                   <span className="room-name">{room.name}</span>
                   <span className="room-meta">{room.userCount} online</span>
                 </div>
+                {!!unreadCounts[room.id] && <span className="unread-badge">{Math.min(unreadCounts[room.id], 99)}</span>}
               </div>
             ))}
           </div>
@@ -87,8 +108,10 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
             <p className="section-title">In {currentRoom.name}</p>
             {roomUsers.map(u => (
               <div key={u.username} className="user-item">
+                <div className="member-avatar">{u.avatar ? <img src={u.avatar} alt="" /> : u.username[0].toUpperCase()}</div>
                 <div className={`status-dot ${u.online ? 'online' : 'offline'}`} />
                 <span className={u.username === username ? 'you' : ''}>{u.username}</span>
+                {u.role && u.role !== 'member' && <span className="role-tag">{u.role}</span>}
                 {u.username === username
                   ? <span className="you-tag">you</span>
                   : (
@@ -124,6 +147,7 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, isOnl
                   <span className="room-name">{dm.with}</span>
                   <span className="room-meta">Direct message</span>
                 </div>
+                {!!unreadCounts[dm.roomId] && <span className="unread-badge">{Math.min(unreadCounts[dm.roomId], 99)}</span>}
               </div>
             ))}
 

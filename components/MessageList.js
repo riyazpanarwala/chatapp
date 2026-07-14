@@ -51,7 +51,7 @@ function FileMessage({ content, fileName, fileSize }) {
 }
 
 function MentionText({ content, currentUsername }) {
-  const parts = content.split(/(@\w+)/g);
+  const parts = content.split(/(@[\w-]+)/g);
   return (
     <p className="bubble-text">
       {parts.map((part, i) => {
@@ -84,7 +84,7 @@ function ReactionBar({ reactions = {}, username, onToggle }) {
   );
 }
 
-function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin, onClose }) {
+function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin, onReply, onForward, onClose }) {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -112,27 +112,48 @@ function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin,
     };
   }, [onClose]);
 
+  useEffect(() => {
+    ref.current?.querySelector('[role="menuitem"]')?.focus();
+  }, []);
+
+  const handleKeyDown = (event) => {
+    const items = [...ref.current.querySelectorAll('[role="menuitem"]')];
+    const index = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : event.key === 'ArrowDown' ? (index + 1) % items.length
+      : (index - 1 + items.length) % items.length;
+    items[next]?.focus();
+  };
+
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div
       ref={ref}
       className="context-menu"
+      role="menu"
+      aria-label="Message actions"
       style={{ position: 'fixed', zIndex: 9999, top: pos.y, left: pos.x }}
       onMouseDown={(e) => e.stopPropagation()}
+      onKeyDown={handleKeyDown}
     >
-      <button className="ctx-btn" onMouseDown={() => { onReact(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      <button role="menuitem" className="ctx-btn" onClick={() => { onReply(); onClose(); }}>↩ Reply</button>
+      <button role="menuitem" className="ctx-btn" onClick={() => { onForward(); onClose(); }}>➜ Forward</button>
+      <button role="menuitem" className="ctx-btn" onClick={onReact} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <SmileIcon size={15} /> Add reaction
       </button>
-      <button className="ctx-btn" onMouseDown={() => { onPin(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      <button role="menuitem" className="ctx-btn" onClick={() => { onPin(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <PinIcon size={15} /> {isPinned ? 'Unpin message' : 'Pin message'}
       </button>
       {isSelf && (
-        <button className="ctx-btn" onMouseDown={() => { onEdit(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <button role="menuitem" className="ctx-btn" onClick={() => { onEdit(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <EditIcon size={15} /> Edit message
         </button>
       )}
       {isSelf && (
-        <button className="ctx-btn danger" onMouseDown={() => { onDelete(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <button role="menuitem" className="ctx-btn danger" onClick={() => { onDelete(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <TrashIcon size={15} /> Delete message
         </button>
       )}
@@ -159,6 +180,22 @@ function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
     };
   }, [onClose]);
 
+  useEffect(() => {
+    ref.current?.querySelector('button')?.focus();
+  }, []);
+
+  const handleKeyDown = (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const items = [...ref.current.querySelectorAll('button')];
+    const index = items.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : event.key === 'ArrowRight' ? (index + 1) % items.length
+      : (index - 1 + items.length) % items.length;
+    items[next]?.focus();
+  };
+
   if (!anchorRect || typeof document === 'undefined') return null;
 
   const pickerWidth = 252;
@@ -171,16 +208,129 @@ function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
     <div
       ref={ref}
       className="quick-reaction-picker"
+      role="menu"
+      aria-label="Choose a reaction"
       style={{ position: 'fixed', zIndex: 9999, top, left }}
       onMouseDown={(e) => e.stopPropagation()}
+      onKeyDown={handleKeyDown}
     >
       {REACTION_EMOJIS.map(e => (
-        <button key={e} className="quick-reaction-btn" onMouseDown={() => { onPick(e); onClose(); }}>
+        <button key={e} role="menuitem" className="quick-reaction-btn" aria-label={`React with ${e}`} onClick={() => { onPick(e); onClose(); }}>
           {e}
         </button>
       ))}
     </div>,
     document.body
+  );
+}
+
+function DeleteMessageDialog({ message, onConfirm, onCancel }) {
+  const cancelRef = useRef(null);
+
+  useEffect(() => {
+    cancelRef.current?.focus();
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') { onCancel(); return; }
+      if (event.key !== 'Tab') return;
+      const buttons = [...document.querySelectorAll('.delete-message-dialog button')];
+      const index = buttons.indexOf(document.activeElement);
+      event.preventDefault();
+      const next = event.shiftKey
+        ? (index - 1 + buttons.length) % buttons.length
+        : (index + 1) % buttons.length;
+      buttons[next]?.focus();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  if (typeof document === 'undefined') return null;
+  const preview = message.type === 'text' ? message.content : `This ${message.type || 'message'}`;
+  return createPortal(
+    <div className="modal-overlay" onMouseDown={onCancel}>
+      <div
+        className="modal delete-message-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-message-title"
+        aria-describedby="delete-message-description"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h3 id="delete-message-title">Delete message?</h3>
+        <p id="delete-message-description">This action can’t be undone.</p>
+        <div className="delete-message-preview">{preview}</div>
+        <div className="modal-actions">
+          <button ref={cancelRef} className="cancel-btn" onClick={onCancel}>Cancel</button>
+          <button className="delete-confirm-btn" onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ForwardDialog({ message, targets, onForward, onCancel }) {
+  const [target, setTarget] = useState('');
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') { onCancel(); return; }
+      if (event.key !== 'Tab') return;
+      const controls = [...(dialogRef.current?.querySelectorAll('select, button:not(:disabled)') || [])];
+      if (!controls.length) return;
+      const index = controls.indexOf(document.activeElement);
+      event.preventDefault();
+      controls[event.shiftKey ? (index - 1 + controls.length) % controls.length : (index + 1) % controls.length]?.focus();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="modal-overlay" onMouseDown={onCancel}>
+      <div ref={dialogRef} className="modal" role="dialog" aria-modal="true" onMouseDown={event => event.stopPropagation()}>
+        <h3>Forward message</h3>
+        <p className="delete-message-preview">{message.type === 'text' ? message.content : `[${message.type}]`}</p>
+        <select className="sidebar-input" value={target} onChange={event => setTarget(event.target.value)} autoFocus>
+          <option value="">Choose a room or DM…</option>
+          {targets.map(item => <option key={item.id} value={item.id}>{item.isDM ? 'DM · ' : '# '}{item.name}</option>)}
+        </select>
+        <div className="modal-actions">
+          <button className="cancel-btn" onClick={onCancel}>Cancel</button>
+          <button className="create-btn" disabled={!target} onClick={() => onForward(target)}>Forward</button>
+        </div>
+      </div>
+    </div>, document.body
+  );
+}
+
+function LinkPreviews({ content }) {
+  const urls = [...new Set(((content || '').match(/https?:\/\/[^\s<]+/gi) || [])
+    .map(url => url.replace(/[.,;:!?)\]]+$/, ''))
+    .filter(Boolean))].slice(0, 2);
+  if (!urls.length) return null;
+  return <div className="link-preview-list">{urls.map(url => {
+    let host = url;
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+    return <a key={url} className="link-preview" href={url} target="_blank" rel="noopener noreferrer">
+      <span className="link-preview-host">{host}</span>
+      <span className="link-preview-url">{url}</span>
+    </a>;
+  })}</div>;
+}
+
+function MessageListSkeleton() {
+  return (
+    <div className="message-list message-list-skeleton" aria-busy="true" aria-label="Loading messages">
+      {[62, 44, 72, 52, 66, 38].map((width, index) => (
+        <div key={index} className={`skeleton-message ${index % 3 === 0 ? 'self' : ''}`}>
+          <div className="skeleton-avatar" />
+          <div className="skeleton-bubble" style={{ width: `${width}%` }}>
+            <span /><span />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -222,19 +372,49 @@ function EditBubble({ initialContent, onSave, onCancel }) {
 export default function MessageList({
   messages, username, pinnedMessages = [],
   onDeleteMessage, onEditMessage, onToggleReaction, onPinMessage,
-  searchQuery,
+  onMessageRead, onReplyMessage, onForwardMessage, forwardTargets = [],
+  onLoadMore, hasMoreMessages, isLoadingOlder, searchQuery, currentRoom, roomUsers = [],
+  isLoading = false,
 }) {
+  const listRef = useRef(null);
   const bottomRef = useRef(null);
+  const reportedReadRef = useRef(new Set());
   const [contextMenu, setContextMenu] = useState(null);
   const [reactionPicker, setReactionPicker] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [showPinned, setShowPinned] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const [forwardCandidate, setForwardCandidate] = useState(null);
 
   useEffect(() => {
     if (!searchQuery) {
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }
   }, [messages.length, searchQuery]);
+
+  useEffect(() => {
+    reportedReadRef.current.clear();
+  }, [currentRoom?.id]);
+
+  useEffect(() => {
+    if (!onMessageRead || !listRef.current || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.6) return;
+        const messageId = entry.target.dataset.unreadMessageId;
+        if (!messageId || reportedReadRef.current.has(messageId)) return;
+        reportedReadRef.current.add(messageId);
+        onMessageRead(messageId);
+        observer.unobserve(entry.target);
+      });
+    }, { root: listRef.current, threshold: 0.6 });
+
+    const unreadMessages = listRef.current.querySelectorAll('[data-unread-message-id]');
+    unreadMessages.forEach(element => {
+      if (!reportedReadRef.current.has(element.dataset.unreadMessageId)) observer.observe(element);
+    });
+    return () => observer.disconnect();
+  }, [messages, onMessageRead]);
 
   const closeAll = useCallback(() => {
     setContextMenu(null);
@@ -245,7 +425,12 @@ export default function MessageList({
     e.preventDefault();
     e.stopPropagation();
     setReactionPicker(null);
-    setContextMenu({ x: e.clientX, y: e.clientY, msg });
+    const rect = e.currentTarget.getBoundingClientRect();
+    setContextMenu({
+      x: e.clientX || rect.left,
+      y: e.clientY || rect.bottom,
+      msg,
+    });
   }, []);
 
   const openReactionPicker = useCallback((e, msg) => {
@@ -254,6 +439,10 @@ export default function MessageList({
     const row = e.currentTarget.closest?.('.msg-wrapper') ?? e.currentTarget;
     setReactionPicker({ anchorRect: row.getBoundingClientRect(), msg });
   }, []);
+
+  const cancelDelete = useCallback(() => setDeleteCandidate(null), []);
+
+  if (isLoading) return <MessageListSkeleton />;
 
   const formatTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const formatDate = (ts) => {
@@ -267,7 +456,13 @@ export default function MessageList({
   let lastDate = '';
 
   return (
-    <div className="message-list">
+    <div className="message-list" ref={listRef}>
+
+      {(hasMoreMessages || isLoadingOlder) && !searchQuery && (
+        <button className="load-more-btn" onClick={onLoadMore} disabled={isLoadingOlder}>
+          {isLoadingOlder ? 'Loading history…' : 'Load older messages'}
+        </button>
+      )}
 
       {/* Pinned banner */}
       {pinnedMessages.length > 0 && (
@@ -315,7 +510,7 @@ export default function MessageList({
         // ── Video call message: full-width card, no bubble chrome ──────────
         if (msg.type === 'video-call' && !msg.deleted) {
           return (
-            <div key={msg.id}>
+            <div id={`message-${msg.id}`} key={msg.id} data-unread-message-id={!isSelf && msg.status !== 'read' ? msg.id : undefined}>
               {showDate && <div className="date-divider"><span>{msgDate}</span></div>}
               <div className="vc-message-row">
                 <VideoCallNotification
@@ -330,18 +525,26 @@ export default function MessageList({
         }
 
         return (
-          <div key={msg.id}>
+          <div key={msg.id} data-unread-message-id={!isSelf && msg.status !== 'read' ? msg.id : undefined}>
             {showDate && <div className="date-divider"><span>{msgDate}</span></div>}
 
             <div
+              id={`message-${msg.id}`}
               className={`msg-wrapper ${isSelf ? 'self' : 'other'} ${isPinned ? 'is-pinned' : ''}`}
               onContextMenu={(e) => !msg.deleted && openContextMenu(e, msg)}
             >
-              {!isSelf && <div className="avatar">{msg.sender?.[0]?.toUpperCase()}</div>}
+              {!isSelf && <div className="avatar">{roomUsers.find(user => user.username === msg.sender)?.avatar
+                ? <img src={roomUsers.find(user => user.username === msg.sender).avatar} alt="" />
+                : msg.sender?.[0]?.toUpperCase()}</div>}
 
               <div className="bubble-col">
                 <div className={`bubble ${isSelf ? 'bubble-self' : 'bubble-other'} ${msg.status === 'pending' ? 'pending' : ''}`}>
                   {!isSelf && !msg.deleted && <span className="bubble-sender">{msg.sender}</span>}
+
+                  {msg.forwardedFrom && <div className="forwarded-label">Forwarded from {msg.forwardedFrom.sender}</div>}
+                  {msg.replyTo && <button className="reply-quote" type="button" onClick={() => document.getElementById(`message-${msg.replyTo.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
+                    <strong>{msg.replyTo.sender}</strong><span>{msg.replyTo.content}</span>
+                  </button>}
 
                   {isEditing ? (
                     <EditBubble
@@ -352,7 +555,7 @@ export default function MessageList({
                   ) : msg.deleted ? (
                     <p className="bubble-text deleted-msg">This message was deleted</p>
                   ) : msg.type === 'text' ? (
-                    <MentionText content={msg.content} currentUsername={username} />
+                    <><MentionText content={msg.content} currentUsername={username} /><LinkPreviews content={msg.content} /></>
                   ) : (msg.type === 'image' || msg.type === 'screenshot') ? (
                     <ImageMessage content={msg.content} fileName={msg.fileName} />
                   ) : msg.type === 'audio' ? (
@@ -367,6 +570,11 @@ export default function MessageList({
                       {isPinned && <span className="pinned-label"><PinIcon size={10} /></span>}
                       <span className="bubble-time">{formatTime(msg.timestamp)}</span>
                       {isSelf && <StatusIcon status={msg.status} />}
+                    </div>
+                  )}
+                  {isSelf && msg.readBy?.some(user => user !== username) && (
+                    <div className="read-by" title={msg.readBy.filter(user => user !== username).join(', ')}>
+                      Read by {msg.readBy.filter(user => user !== username).join(', ')}
                     </div>
                   )}
                 </div>
@@ -385,12 +593,16 @@ export default function MessageList({
                   <button
                     className="msg-action-btn"
                     title="Add reaction"
-                    onMouseDown={(e) => openReactionPicker(e, msg)}
+                    aria-label="Add reaction"
+                    aria-haspopup="menu"
+                    onClick={(e) => openReactionPicker(e, msg)}
                   ><SmileIcon size={15} /></button>
                   <button
                     className="msg-action-btn"
                     title="More options"
-                    onMouseDown={(e) => openContextMenu(e, msg)}
+                    aria-label="More message options"
+                    aria-haspopup="menu"
+                    onClick={(e) => openContextMenu(e, msg)}
                   ><MoreIcon size={15} /></button>
                 </div>
               )}
@@ -406,8 +618,10 @@ export default function MessageList({
           y={contextMenu.y}
           isSelf={contextMenu.msg.sender === username}
           isPinned={pinnedMessages.some(p => p.id === contextMenu.msg.id)}
-          onDelete={() => onDeleteMessage(contextMenu.msg.id)}
+          onDelete={() => setDeleteCandidate(contextMenu.msg)}
           onEdit={() => setEditingId(contextMenu.msg.id)}
+          onReply={() => onReplyMessage?.(contextMenu.msg)}
+          onForward={() => setForwardCandidate(contextMenu.msg)}
           onReact={() => {
             const msg = contextMenu.msg;
             const rect = contextMenu;
@@ -428,6 +642,28 @@ export default function MessageList({
           isSelf={reactionPicker.msg.sender === username}
           onPick={(emoji) => onToggleReaction(reactionPicker.msg.id, emoji)}
           onClose={() => setReactionPicker(null)}
+        />
+      )}
+
+      {deleteCandidate && (
+        <DeleteMessageDialog
+          message={deleteCandidate}
+          onCancel={cancelDelete}
+          onConfirm={() => {
+            onDeleteMessage(deleteCandidate.id);
+            setDeleteCandidate(null);
+          }}
+        />
+      )}
+      {forwardCandidate && (
+        <ForwardDialog
+          message={forwardCandidate}
+          targets={forwardTargets.filter(item => item.id !== currentRoom?.id)}
+          onCancel={() => setForwardCandidate(null)}
+          onForward={async targetId => {
+            await onForwardMessage?.(forwardCandidate.id, targetId);
+            setForwardCandidate(null);
+          }}
         />
       )}
     </div>
