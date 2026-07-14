@@ -25,6 +25,21 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
   const emojiImportRef = useRef(null);
+  const emojiPopupRef = useRef(null);
+  const emojiToggleRef = useRef(null);
+
+  useEffect(() => {
+    if (!showEmoji) return;
+    const handleOutside = (event) => {
+      if (!emojiPopupRef.current?.contains(event.target) && !emojiToggleRef.current?.contains(event.target)) setShowEmoji(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [showEmoji]);
 
   const toggleEmojiPicker = useCallback(async () => {
     if (showEmoji) {
@@ -235,7 +250,7 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
         </div>
       )}
       {showEmoji && (
-        <div className="emoji-popup" id="emoji-picker-popup" role="dialog" aria-label="Choose an emoji">
+        <div ref={emojiPopupRef} className="emoji-popup" id="emoji-picker-popup" role="dialog" aria-label="Choose an emoji">
           {EmojiPicker ? (
             <EmojiPicker
               onEmojiClick={onEmojiClick}
@@ -273,6 +288,7 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
 
       <div className="input-bar">
         <button
+          ref={emojiToggleRef}
           className="icon-btn"
           onClick={toggleEmojiPicker}
           title="Emoji"

@@ -271,10 +271,24 @@ function DeleteMessageDialog({ message, onConfirm, onCancel }) {
 
 function ForwardDialog({ message, targets, onForward, onCancel }) {
   const [target, setTarget] = useState('');
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') { onCancel(); return; }
+      if (event.key !== 'Tab') return;
+      const controls = [...(dialogRef.current?.querySelectorAll('select, button:not(:disabled)') || [])];
+      if (!controls.length) return;
+      const index = controls.indexOf(document.activeElement);
+      event.preventDefault();
+      controls[event.shiftKey ? (index - 1 + controls.length) % controls.length : (index + 1) % controls.length]?.focus();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div className="modal-overlay" onMouseDown={onCancel}>
-      <div className="modal" role="dialog" aria-modal="true" onMouseDown={event => event.stopPropagation()}>
+      <div ref={dialogRef} className="modal" role="dialog" aria-modal="true" onMouseDown={event => event.stopPropagation()}>
         <h3>Forward message</h3>
         <p className="delete-message-preview">{message.type === 'text' ? message.content : `[${message.type}]`}</p>
         <select className="sidebar-input" value={target} onChange={event => setTarget(event.target.value)} autoFocus>
@@ -291,7 +305,9 @@ function ForwardDialog({ message, targets, onForward, onCancel }) {
 }
 
 function LinkPreviews({ content }) {
-  const urls = [...new Set((content || '').match(/https?:\/\/[^\s<]+/gi) || [])].slice(0, 2);
+  const urls = [...new Set(((content || '').match(/https?:\/\/[^\s<]+/gi) || [])
+    .map(url => url.replace(/[.,;:!?)\]]+$/, ''))
+    .filter(Boolean))].slice(0, 2);
   if (!urls.length) return null;
   return <div className="link-preview-list">{urls.map(url => {
     let host = url;
@@ -494,7 +510,7 @@ export default function MessageList({
         // ── Video call message: full-width card, no bubble chrome ──────────
         if (msg.type === 'video-call' && !msg.deleted) {
           return (
-            <div key={msg.id} data-unread-message-id={!isSelf && msg.status !== 'read' ? msg.id : undefined}>
+            <div id={`message-${msg.id}`} key={msg.id} data-unread-message-id={!isSelf && msg.status !== 'read' ? msg.id : undefined}>
               {showDate && <div className="date-divider"><span>{msgDate}</span></div>}
               <div className="vc-message-row">
                 <VideoCallNotification

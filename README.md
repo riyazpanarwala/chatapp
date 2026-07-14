@@ -142,7 +142,7 @@ pdf, txt, csv, zip,
 doc, docx, xls, xlsx, ppt, pptx
 ```
 
-The current interface uploads selected attachments one at a time. Profile pictures must be images and are limited to 5 MB by the client.
+The current interface uploads selected attachments one at a time. Profile pictures use a dedicated avatar endpoint and are restricted to images no larger than 5 MB by both the client and server.
 
 ## Project structure
 
@@ -153,6 +153,7 @@ chatapp/
 |  |- layout.js                  # Root metadata and document layout
 |  |- page.js                    # Main chat screen and modal orchestration
 |  |- globals.css                # Application design system and responsive styles
+|  |- api/avatar/route.js        # Image-only profile upload endpoint
 |  `- api/upload/route.js        # Validated local-file upload endpoint
 |- components/
 |  |- GlobalSearch.js            # Cross-conversation search dialog

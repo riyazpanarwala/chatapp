@@ -22,7 +22,7 @@ export default function Home() {
     unreadCounts,
     searchQuery, setSearchQuery,
     globalSearchResults, isGlobalSearching, searchAllMessages,
-    hasMoreMessages, isLoadingOlder, loadMoreMessages,
+    hasMoreMessages, isLoadingOlder, loadMoreMessages, loadMessageContext,
     avatar, updateAvatar,
     joinRoom, createRoom, sendMessage, handleTyping, leaveRoom,
     editMessage, deleteMessage, markMessageRead, toggleReaction, pinMessage,
@@ -39,12 +39,18 @@ export default function Home() {
   useEffect(() => { setReplyingTo(null); setShowRoomSettings(false); }, [currentRoom?.id]);
   useEffect(() => {
     if (!pendingJump || currentRoom?.id !== pendingJump.roomId) return;
-    const timer = setTimeout(() => {
-      document.getElementById(`message-${pendingJump.messageId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const target = document.getElementById(`message-${pendingJump.messageId}`);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setPendingJump(null);
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [pendingJump, currentRoom?.id, messages.length]);
+      return;
+    }
+    if (pendingJump.loading) return;
+    setPendingJump(current => current ? { ...current, loading: true } : current);
+    loadMessageContext(pendingJump.messageId).then(found => {
+      if (!found) setPendingJump(current => current?.messageId === pendingJump.messageId ? null : current);
+    });
+  }, [pendingJump, currentRoom?.id, messages.length, loadMessageContext]);
 
   useEffect(() => {
     const saved = localStorage.getItem('chat_sidebar_open');

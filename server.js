@@ -32,6 +32,8 @@ const RATE_LIMITS = {
   'pin-message': { max: 30, windowMs: 60_000 },
   'forward-message': { max: 20, windowMs: 10_000 },
   'global-search': { max: 20, windowMs: 10_000 },
+  'load-more-messages': { max: 30, windowMs: 10_000 },
+  'message-context': { max: 30, windowMs: 10_000 },
   'manage-room': { max: 30, windowMs: 60_000 },
 };
 
@@ -94,7 +96,11 @@ function roomListFor(username) {
 }
 
 function emitRoomLists(io) {
-  for (const [socketId, user] of users) io.to(socketId).emit('rooms-updated', roomListFor(user.username));
+  const listsByUsername = new Map();
+  for (const [socketId, user] of users) {
+    if (!listsByUsername.has(user.username)) listsByUsername.set(user.username, roomListFor(user.username));
+    io.to(socketId).emit('rooms-updated', listsByUsername.get(user.username));
+  }
 }
 
 function canModerate(room, username) {
@@ -122,6 +128,7 @@ function emitMessageActivity(io, roomId, room, message) {
 function getRoomPublicInfo(roomId) {
   const room = rooms.get(roomId);
   if (!room) return null;
+  const usersByUsername = new Map([...users.values()].map(user => [user.username, user]));
   return {
     id: roomId,
     name: room.name,
@@ -133,7 +140,7 @@ function getRoomPublicInfo(roomId) {
     owner: room.owner || null,
     myRole: null,
     users: [...(room.members || room.users)].map(uid => {
-      const u = [...users.values()].find(u => u.username === uid);
+      const u = usersByUsername.get(uid);
       return { username: uid, online: room.users.has(uid) && !!u, avatar: profiles.get(uid)?.avatar || u?.avatar || null, role: room.roles?.[uid] || 'member' };
     }),
   };
@@ -149,6 +156,36 @@ function getDMRoomId(userA, userB) {
 // (editing/deleting a message, sending as a given sender, DM identity, etc).
 function getAuthedUser(socket) {
   return users.get(socket.id) || null;
+}
+
+const MESSAGE_TYPES = new Set(['text', 'image', 'file', 'audio', 'screenshot', 'video-call']);
+
+function buildMessage(message, user, room, roomId = message?.roomId) {
+  if (!message || typeof roomId !== 'string' || typeof message.id !== 'string' || message.id.length > 128) return null;
+  const type = MESSAGE_TYPES.has(message.type) ? message.type : null;
+  if (!type || typeof message.content !== 'string') return null;
+  const maxContentLength = type === 'audio' ? 15_000_000 : 50_000;
+  if (!message.content || message.content.length > maxContentLength) return null;
+  const replySource = message.replyTo?.id
+    ? room.messages.find(item => item.id === message.replyTo.id && !item.deleted)
+    : null;
+  const fullMessage = {
+    id: message.id, roomId, sender: user.username, type, content: message.content,
+    timestamp: Date.now(), status: 'delivered', readBy: [user.username],
+    replyTo: replySource ? {
+      id: replySource.id,
+      sender: replySource.sender,
+      content: replySource.type === 'text' ? replySource.content.slice(0, 240) : `[${replySource.type}]`,
+    } : null,
+  };
+  if (typeof message.fileName === 'string') fullMessage.fileName = message.fileName.slice(0, 255);
+  if (Number.isFinite(message.fileSize) && message.fileSize >= 0) fullMessage.fileSize = message.fileSize;
+  if (type === 'video-call') {
+    if (typeof message.callRoomId === 'string') fullMessage.callRoomId = message.callRoomId.slice(0, 256);
+    fullMessage.callerName = user.username;
+    if (typeof message.callUrl === 'string') fullMessage.callUrl = message.callUrl.slice(0, 2048);
+  }
+  return fullMessage;
 }
 
 app.prepare().then(() => {
@@ -171,7 +208,7 @@ app.prepare().then(() => {
     socket.on('set-username', ({ username, avatar }) => {
       const trimmed = (username || '').trim().slice(0, 24);
       if (!trimmed) return;
-      if (typeof avatar === 'string' && avatar.length <= 2048) profiles.set(trimmed, { avatar });
+      if (typeof avatar === 'string' && avatar.trim() && avatar.length <= 2048) profiles.set(trimmed, { avatar });
       users.set(socket.id, { username: trimmed, roomId: null, avatar: profiles.get(trimmed)?.avatar || null });
       socket.emit('username-set', { username: trimmed, avatar: profiles.get(trimmed)?.avatar || null });
     });
@@ -199,6 +236,9 @@ app.prepare().then(() => {
     socket.on('create-room', ({ roomId, name, password }) => {
       const user = getAuthedUser(socket);
       if (!user) { socket.emit('room-error', { message: 'Set a username first' }); return; }
+      if (typeof roomId !== 'string' || !roomId.trim() || roomId.length > 128 || typeof name !== 'string') {
+        socket.emit('room-error', { message: 'Invalid room details' }); return;
+      }
       if (isRateLimited(socket, 'create-room')) {
         socket.emit('room-error', { message: 'Too many rooms created — slow down' });
         return;
@@ -221,6 +261,9 @@ app.prepare().then(() => {
     socket.on('join-room', ({ roomId, password }) => {
       const user = getAuthedUser(socket);
       if (!user) { socket.emit('room-error', { message: 'Set a username first' }); return; }
+      if (typeof roomId !== 'string' || !roomId.trim() || roomId.length > 128) {
+        socket.emit('room-error', { message: 'Invalid room id' }); return;
+      }
       if (isRateLimited(socket, 'join-room')) {
         socket.emit('room-error', { message: 'Too many room joins — slow down' });
         return;
@@ -302,16 +345,8 @@ app.prepare().then(() => {
       }
       // Force sender to the socket's authenticated identity — never trust
       // whatever `sender` the client put in the message payload.
-      const cleanContent = typeof message.content === 'string' ? message.content.slice(0, 50_000) : '';
-      const replySource = message.replyTo?.id ? room.messages.find(item => item.id === message.replyTo.id && !item.deleted) : null;
-      const replyTo = replySource ? {
-        id: replySource.id, sender: replySource.sender,
-        content: replySource.type === 'text' ? replySource.content.slice(0, 240) : `[${replySource.type}]`,
-      } : null;
-      const fullMessage = {
-        ...message, content: cleanContent, sender: user.username, status: 'delivered',
-        readBy: [user.username], replyTo,
-      };
+      const fullMessage = buildMessage(message, user, room);
+      if (!fullMessage) { if (ack) ack({ error: 'Invalid message' }); return; }
       room.messages.push(fullMessage);
       if (room.messages.length > 2000) room.messages.shift();
 
@@ -364,19 +399,27 @@ app.prepare().then(() => {
       io.to(roomId).emit('message-read', { messageId, username: user.username, readBy: room.messages.find(m => m.id === messageId)?.readBy || [] });
     });
 
-    socket.on('send-blob', ({ roomId, message }) => {
+    socket.on('send-blob', ({ roomId, message }, ack) => {
       const user = getAuthedUser(socket);
-      if (!user) return;
+      if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
+      if (isRateLimited(socket, 'send-message')) { if (ack) ack({ error: 'Too many messages — slow down' }); return; }
       const room = rooms.get(roomId);
-      if (!room) return;
-      const fullMessage = { ...message, sender: user.username };
+      if (!room || user.roomId !== roomId || !room.users.has(user.username) || room.bans?.has(user.username)) {
+        if (ack) ack({ error: 'Join the room before sending messages' }); return;
+      }
+      const fullMessage = buildMessage({ ...message, roomId }, user, room, roomId);
+      if (!fullMessage) { if (ack) ack({ error: 'Invalid message' }); return; }
       room.messages.push(fullMessage);
-      io.to(roomId).emit('new-message', fullMessage);
+      if (room.messages.length > 2000) room.messages.shift();
+      socket.to(roomId).emit('new-message', fullMessage);
+      emitMessageActivity(io, roomId, room, fullMessage);
+      if (ack) ack({ status: 'delivered', messageId: fullMessage.id, message: fullMessage });
     });
 
     socket.on('load-more-messages', ({ roomId, before, limit = 50 }, ack) => {
       const user = getAuthedUser(socket);
       const room = rooms.get(roomId);
+      if (isRateLimited(socket, 'load-more-messages')) { if (ack) ack({ error: 'Too many requests — slow down' }); return; }
       if (!user || !room || (!room.members?.has(user.username) && !room.users.has(user.username))) {
         if (ack) ack({ error: 'Room not found or unavailable' }); return;
       }
@@ -385,6 +428,19 @@ app.prepare().then(() => {
       const older = room.messages.filter(message => message.timestamp < cutoff);
       const page = older.slice(-safeLimit);
       if (ack) ack({ messages: page, hasMore: older.length > page.length });
+    });
+
+    socket.on('message-context', ({ roomId, messageId, limit = 100 }, ack) => {
+      const user = getAuthedUser(socket);
+      const room = rooms.get(roomId);
+      if (isRateLimited(socket, 'message-context')) { if (ack) ack({ error: 'Too many requests — slow down' }); return; }
+      const allowed = room && (room.isDM ? room.dmUsers?.includes(user?.username) : room.members?.has(user?.username));
+      if (!user || !allowed || typeof messageId !== 'string') { if (ack) ack({ error: 'Message is unavailable' }); return; }
+      const index = room.messages.findIndex(message => message.id === messageId && !message.deleted);
+      if (index < 0) { if (ack) ack({ error: 'Message is unavailable' }); return; }
+      const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 100));
+      const start = Math.max(0, index - Math.floor(safeLimit / 2));
+      if (ack) ack({ messages: room.messages.slice(start, start + safeLimit), found: true });
     });
 
     socket.on('global-search', ({ query }, ack) => {
@@ -449,7 +505,8 @@ app.prepare().then(() => {
         if (!canModerate(room, user.username) || targetUser === room.owner || rank[role] <= rank[targetRole]) { reject('You cannot moderate this member'); return; }
         if (action === 'ban') room.bans.add(targetUser);
         room.users.delete(targetUser);
-        if (action === 'ban') room.members.delete(targetUser);
+        room.members.delete(targetUser);
+        delete room.roles[targetUser];
         for (const socketId of findUserSockets(targetUser)) {
           const target = users.get(socketId);
           if (target?.roomId === roomId) {
@@ -484,7 +541,7 @@ app.prepare().then(() => {
       const msg = room.messages.find(m => m.id === messageId);
       // Authorization check now uses the server-verified identity, not a
       // client-supplied username — this is what prevents forged edits.
-      if (!msg || msg.sender !== user.username) { if (ack) ack({ error: 'You can only edit your own messages' }); return; }
+      if (!msg || msg.deleted || msg.sender !== user.username) { if (ack) ack({ error: 'You can only edit your own messages' }); return; }
       const content = typeof newContent === 'string' ? newContent.trim() : '';
       if (!content || content.length > 10_000) { if (ack) ack({ error: 'Message must be between 1 and 10,000 characters' }); return; }
       if (!msg.editHistory) msg.editHistory = [];

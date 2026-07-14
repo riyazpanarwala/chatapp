@@ -33,13 +33,18 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, avata
 
   const handleAvatar = async (event) => {
     const file = event.target.files?.[0];
+    event.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) return;
-    const form = new FormData(); form.append('file', file);
-    const response = await fetch('/api/upload', { method: 'POST', body: form });
-    const data = await response.json();
-    if (response.ok && data.files?.[0]?.url) onUpdateAvatar(data.files[0].url);
-    event.target.value = '';
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch('/api/avatar', { method: 'POST', body: form });
+      const data = await response.json();
+      if (response.ok && data.files?.[0]?.url) onUpdateAvatar(data.files[0].url);
+    } catch (error) {
+      console.error('Avatar upload failed:', error);
+    }
   };
 
   return (
