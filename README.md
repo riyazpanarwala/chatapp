@@ -10,6 +10,13 @@ npm run dev          # Development → http://localhost:3000
 npm run build && npm start   # Production
 ```
 
+For production, set `ALLOWED_ORIGIN` to the public site origin before starting
+the server. Multiple origins can be comma-separated, for example:
+
+```bash
+ALLOWED_ORIGIN=https://chat.example.com npm start
+```
+
 ## 📁 Project Structure
 
 ```

@@ -1,10 +1,7 @@
 'use client';
 import { useState, useRef, useCallback, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { v4 as uuidv4 } from 'uuid';
 import { SmileIcon, PaperclipIcon, MicIcon, StopIcon, MonitorIcon, VideoIcon, SendIcon, ClockIcon } from '../lib/icons';
-
-const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
 const WEBRTC_BASE = 'https://webrtc-video-app-one.vercel.app';
 
@@ -15,6 +12,7 @@ function buildVideoCallUrl(roomId, userName) {
 export default function InputBar({ currentRoom, username, roomUsers, onSendMessage, onTyping, disabled }) {
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [EmojiPicker, setEmojiPicker] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [mentionQuery, setMentionQuery] = useState(null);
@@ -26,6 +24,20 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const emojiImportRef = useRef(null);
+
+  const toggleEmojiPicker = useCallback(async () => {
+    if (showEmoji) {
+      setShowEmoji(false);
+      return;
+    }
+    setShowEmoji(true);
+    if (!emojiImportRef.current) {
+      emojiImportRef.current = import('emoji-picker-react');
+    }
+    const module = await emojiImportRef.current;
+    setEmojiPicker(() => module.default);
+  }, [showEmoji]);
 
   // Detect @mention typing
   const detectMention = useCallback((value, cursorPos) => {
@@ -100,6 +112,8 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     if (mentionResults.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => (i + 1) % mentionResults.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => (i - 1 + mentionResults.length) % mentionResults.length); return; }
+      if (e.key === 'Home') { e.preventDefault(); setMentionIndex(0); return; }
+      if (e.key === 'End') { e.preventDefault(); setMentionIndex(mentionResults.length - 1); return; }
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionResults[mentionIndex]); return; }
       if (e.key === 'Escape') { setMentionQuery(null); setMentionResults([]); return; }
     }
@@ -107,6 +121,12 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
+    }
+
+    if (e.key === 'Escape' && showEmoji) {
+      e.preventDefault();
+      setShowEmoji(false);
+      return;
     }
   };
 
@@ -202,18 +222,32 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
   return (
     <div className="input-bar-wrapper">
       {showEmoji && (
-        <div className="emoji-popup">
-          <EmojiPicker onEmojiClick={onEmojiClick} width="100%" height={350} theme="dark" />
+        <div className="emoji-popup" id="emoji-picker-popup" role="dialog" aria-label="Choose an emoji">
+          {EmojiPicker ? (
+            <EmojiPicker
+              onEmojiClick={onEmojiClick}
+              width="100%"
+              height={350}
+              theme="dark"
+              lazyLoadEmojis
+              previewConfig={{ showPreview: false }}
+            />
+          ) : (
+            <div className="emoji-picker-loading" aria-busy="true">Loading emoji…</div>
+          )}
         </div>
       )}
 
       {/* @mention autocomplete */}
       {mentionResults.length > 0 && (
-        <div className="mention-popup">
+        <div className="mention-popup" id="mention-listbox" role="listbox" aria-label="Mention someone">
           <div className="mention-header">Mention someone</div>
           {mentionResults.map((u, i) => (
             <div
               key={u}
+              id={`mention-option-${i}`}
+              role="option"
+              aria-selected={i === mentionIndex}
               className={`mention-item ${i === mentionIndex ? 'active' : ''}`}
               onMouseDown={(e) => { e.preventDefault(); insertMention(u); }}
             >
@@ -225,7 +259,15 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
       )}
 
       <div className="input-bar">
-        <button className="icon-btn" onClick={() => setShowEmoji(s => !s)} title="Emoji">
+        <button
+          className="icon-btn"
+          onClick={toggleEmojiPicker}
+          title="Emoji"
+          aria-label="Choose an emoji"
+          aria-expanded={showEmoji}
+          aria-controls="emoji-picker-popup"
+          aria-haspopup="dialog"
+        >
           <SmileIcon size={17} />
         </button>
 
@@ -243,6 +285,10 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
               value={text}
               onChange={handleChange}
               onKeyDown={handleKey}
+              aria-autocomplete="list"
+              aria-controls={mentionResults.length > 0 ? 'mention-listbox' : undefined}
+              aria-expanded={mentionResults.length > 0}
+              aria-activedescendant={mentionResults.length > 0 ? `mention-option-${mentionIndex}` : undefined}
               rows={1}
               disabled={disabled}
             />

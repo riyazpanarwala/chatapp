@@ -251,6 +251,15 @@ html, body {
 .message-list::-webkit-scrollbar-track { background: transparent; }
 .message-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
+.message-list-skeleton { gap: 18px; padding: 28px 22px; overflow: hidden; }
+.skeleton-message { display: flex; align-items: flex-end; gap: 10px; max-width: 72%; }
+.skeleton-message.self { align-self: flex-end; flex-direction: row-reverse; }
+.skeleton-avatar { width: 30px; height: 30px; border-radius: 10px; flex: 0 0 auto; background: var(--bg4); }
+.skeleton-bubble { min-width: 180px; max-width: 420px; height: 58px; border-radius: 16px; padding: 14px; background: var(--bg3); display: flex; flex-direction: column; gap: 9px; }
+.skeleton-bubble span { height: 8px; border-radius: 8px; background: linear-gradient(90deg, var(--glass) 25%, var(--border2) 50%, var(--glass) 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.4s ease-in-out infinite; }
+.skeleton-bubble span:last-child { width: 58%; }
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
 /* ── Pinned messages ──────────────────────────────────────────────────────── */
 .pinned-banner {
   display: flex; align-items: center; gap: 9px; padding: 9px 20px;
@@ -539,7 +548,8 @@ html, body {
 .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: pulse 1s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-.emoji-popup { position: absolute; bottom: calc(100% + 10px); left: 16px; z-index: 100; border-radius: 16px; overflow: hidden; box-shadow: 0 16px 48px rgba(0,0,0,0.5); width: 320px; border: 1px solid var(--border2); }
+.emoji-popup { position: absolute; bottom: calc(100% + 10px); left: 16px; z-index: 100; border-radius: 16px; overflow: hidden; box-shadow: 0 16px 48px rgba(0,0,0,0.5); width: 320px; min-height: 120px; border: 1px solid var(--border2); background: var(--bg3); }
+.emoji-picker-loading { min-height: 120px; display: grid; place-items: center; color: var(--text3); font-size: 12px; font-family: var(--font-mono); }
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 32px; text-align: center; }
@@ -622,6 +632,10 @@ html, body {
 .modal h3 { font-size: 18px; font-weight: 600; font-family: var(--font-display); }
 .modal p { font-size: 13px; color: var(--text3); }
 .modal-actions { display: flex; gap: 8px; }
+.delete-message-dialog .modal-actions { justify-content: flex-end; margin-top: 6px; }
+.delete-message-preview { padding: 11px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--glass); color: var(--text2); font-size: 13px; line-height: 1.45; max-height: 90px; overflow: hidden; overflow-wrap: anywhere; }
+.delete-confirm-btn { padding: 10px 16px; border: 1px solid rgba(245, 99, 107, 0.4); border-radius: 10px; background: rgba(245, 99, 107, 0.13); color: var(--red); font-weight: 700; cursor: pointer; }
+.delete-confirm-btn:hover { background: rgba(245, 99, 107, 0.22); }
 
 /* ── Mobile ──────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {

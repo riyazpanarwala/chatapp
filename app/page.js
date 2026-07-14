@@ -12,7 +12,7 @@ export default function Home() {
     username, initUsername,
     rooms, currentRoom,
     messages, roomUsers, typingUsers,
-    isOnline, isConnected, error, setError,
+    isOnline, isConnected, isJoiningRoom, error, setError,
     pinnedMessages,
     onlineUsers,
     notifications, dismissNotification,
@@ -25,6 +25,19 @@ export default function Home() {
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSearch, setShowSearch] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('chat_sidebar_open');
+    if (saved !== null) setSidebarOpen(saved === 'true');
+  }, []);
+
+  const toggleSidebar = () => {
+    setSidebarOpen(open => {
+      const next = !open;
+      localStorage.setItem('chat_sidebar_open', String(next));
+      return next;
+    });
+  };
 
   // Auto-dismiss notifications after 5s
   useEffect(() => {
@@ -88,7 +101,12 @@ export default function Home() {
       )}
 
       <div className="chat-container">
-        <button className="sidebar-toggle" onClick={() => setSidebarOpen(s => !s)}>
+        <button
+          className="sidebar-toggle"
+          onClick={toggleSidebar}
+          aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          aria-expanded={sidebarOpen}
+        >
           {sidebarOpen ? '◀' : '▶'}
         </button>
 
@@ -109,7 +127,9 @@ export default function Home() {
         )}
 
         <main className="chat-main">
-          {!currentRoom ? (
+          {isJoiningRoom && !currentRoom ? (
+            <MessageList messages={[]} username={username} isLoading />
+          ) : !currentRoom ? (
             <div className="empty-state">
               <div className="empty-icon"><MessageIcon size={30} /></div>
               <h2>Welcome, {username}!</h2>
@@ -176,6 +196,7 @@ export default function Home() {
                 onToggleReaction={toggleReaction}
                 onPinMessage={pinMessage}
                 currentRoom={currentRoom}
+                isLoading={isJoiningRoom}
               />
 
               <InputBar
@@ -184,7 +205,7 @@ export default function Home() {
                 roomUsers={roomUsers}
                 onSendMessage={sendMessage}
                 onTyping={handleTyping}
-                disabled={false}
+                disabled={isJoiningRoom}
               />
             </>
           )}
