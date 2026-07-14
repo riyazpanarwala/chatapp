@@ -222,9 +222,11 @@ function EditBubble({ initialContent, onSave, onCancel }) {
 export default function MessageList({
   messages, username, pinnedMessages = [],
   onDeleteMessage, onEditMessage, onToggleReaction, onPinMessage,
-  searchQuery,
+  onMessageRead, searchQuery, currentRoom,
 }) {
+  const listRef = useRef(null);
   const bottomRef = useRef(null);
+  const reportedReadRef = useRef(new Set());
   const [contextMenu, setContextMenu] = useState(null);
   const [reactionPicker, setReactionPicker] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -235,6 +237,30 @@ export default function MessageList({
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }
   }, [messages.length, searchQuery]);
+
+  useEffect(() => {
+    reportedReadRef.current.clear();
+  }, [currentRoom?.id]);
+
+  useEffect(() => {
+    if (!onMessageRead || !listRef.current || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.6) return;
+        const messageId = entry.target.dataset.unreadMessageId;
+        if (!messageId || reportedReadRef.current.has(messageId)) return;
+        reportedReadRef.current.add(messageId);
+        onMessageRead(messageId);
+        observer.unobserve(entry.target);
+      });
+    }, { root: listRef.current, threshold: 0.6 });
+
+    const unreadMessages = listRef.current.querySelectorAll('[data-unread-message-id]');
+    unreadMessages.forEach(element => {
+      if (!reportedReadRef.current.has(element.dataset.unreadMessageId)) observer.observe(element);
+    });
+    return () => observer.disconnect();
+  }, [messages, onMessageRead]);
 
   const closeAll = useCallback(() => {
     setContextMenu(null);
@@ -267,7 +293,7 @@ export default function MessageList({
   let lastDate = '';
 
   return (
-    <div className="message-list">
+    <div className="message-list" ref={listRef}>
 
       {/* Pinned banner */}
       {pinnedMessages.length > 0 && (
@@ -315,7 +341,7 @@ export default function MessageList({
         // ── Video call message: full-width card, no bubble chrome ──────────
         if (msg.type === 'video-call' && !msg.deleted) {
           return (
-            <div key={msg.id}>
+            <div key={msg.id} data-unread-message-id={!isSelf && msg.status !== 'read' ? msg.id : undefined}>
               {showDate && <div className="date-divider"><span>{msgDate}</span></div>}
               <div className="vc-message-row">
                 <VideoCallNotification
@@ -330,7 +356,7 @@ export default function MessageList({
         }
 
         return (
-          <div key={msg.id}>
+          <div key={msg.id} data-unread-message-id={!isSelf && msg.status !== 'read' ? msg.id : undefined}>
             {showDate && <div className="date-divider"><span>{msgDate}</span></div>}
 
             <div

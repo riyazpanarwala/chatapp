@@ -107,8 +107,6 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
-    } else {
-      onTyping?.();
     }
   };
 
@@ -116,6 +114,7 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     const val = e.target.value;
     setText(val);
     detectMention(val, e.target.selectionStart);
+    if (val.trim()) onTyping?.();
   };
 
   const onEmojiClick = (emojiData) => {
@@ -127,23 +126,23 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
     const files = Array.from(e.target.files);
     if (!files.length) return;
     for (const file of files) {
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`${file.name} exceeds the 10 MB upload limit.`);
+        continue;
+      }
       const formData = new FormData();
       formData.append('file', file);
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
         if (data.files?.[0]) {
           const f = data.files[0];
           const type = file.type.startsWith('image/') ? 'image' : 'file';
           onSendMessage(f.url, type, { fileName: f.name, fileSize: f.size });
         }
       } catch (err) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const type = file.type.startsWith('image/') ? 'image' : 'file';
-          onSendMessage(reader.result, type, { fileName: file.name, fileSize: file.size });
-        };
-        reader.readAsDataURL(file);
+        alert(err.message || `Could not upload ${file.name}`);
       }
     }
     e.target.value = '';
@@ -250,7 +249,14 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
           )}
         </div>
 
-        <input ref={fileInputRef} type="file" multiple accept="*/*" onChange={handleFileChange} style={{ display: 'none' }} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+          onChange={handleFileChange}
+          style={{ display: 'none' }}
+        />
         <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Attach file">
           <PaperclipIcon size={17} />
         </button>

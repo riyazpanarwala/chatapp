@@ -19,7 +19,7 @@ export default function Home() {
     dmList,
     searchQuery, setSearchQuery,
     joinRoom, createRoom, sendMessage, handleTyping, leaveRoom,
-    editMessage, deleteMessage, toggleReaction, pinMessage,
+    editMessage, deleteMessage, markMessageRead, toggleReaction, pinMessage,
     openDM,
   } = useChat();
 
@@ -172,6 +172,7 @@ export default function Home() {
                 searchQuery={searchQuery}
                 onDeleteMessage={deleteMessage}
                 onEditMessage={editMessage}
+                onMessageRead={markMessageRead}
                 onToggleReaction={toggleReaction}
                 onPinMessage={pinMessage}
                 currentRoom={currentRoom}

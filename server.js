@@ -2,10 +2,77 @@ const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
-const path = require('path');
-const fs = require('fs');
 
 const dev = process.env.NODE_ENV !== 'production';
+
+// Restrict Socket.IO CORS. Set ALLOWED_ORIGIN to one or more comma-separated
+// public origins when deploying. Local development permits localhost only.
+const allowedOrigins = (process.env.ALLOWED_ORIGIN || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+const ALLOWED_ORIGIN = dev && allowedOrigins.length === 0
+  ? ['http://localhost:3000', 'http://127.0.0.1:3000']
+  : allowedOrigins;
+
+// ── Simple per-socket rate limiting ─────────────────────────────────────────
+// Sliding-window counters keyed by event name, stored on the socket instance.
+// Not a substitute for a real rate limiter (e.g. Redis-backed) under heavy
+// load / multiple server instances, but stops trivial single-client spam.
+const RATE_LIMITS = {
+  'send-message': { max: 20, windowMs: 10_000 },
+  'create-room': { max: 5, windowMs: 60_000 },
+  'join-room': { max: 20, windowMs: 60_000 },
+  'open-dm': { max: 20, windowMs: 60_000 },
+  'typing': { max: 10, windowMs: 5_000 },
+  'read-message': { max: 100, windowMs: 10_000 },
+  'edit-message': { max: 30, windowMs: 60_000 },
+  'delete-message': { max: 30, windowMs: 60_000 },
+  'toggle-reaction': { max: 60, windowMs: 60_000 },
+  'pin-message': { max: 30, windowMs: 60_000 },
+};
+
+function isRateLimited(socket, key) {
+  const limit = RATE_LIMITS[key];
+  if (!limit) return false;
+  socket._rateBuckets = socket._rateBuckets || {};
+  const now = Date.now();
+  const recent = (socket._rateBuckets[key] || []).filter(t => now - t < limit.windowMs);
+  recent.push(now);
+  socket._rateBuckets[key] = recent;
+  return recent.length > limit.max;
+}
+
+// ── Empty-room reaping ───────────────────────────────────────────────────────
+// Rooms live in memory forever otherwise. When any room becomes empty, give it
+// a grace period (in case everyone is just switching rooms briefly), then
+// delete it if it is still empty.
+const EMPTY_ROOM_GRACE_MS = 10 * 60 * 1000; // 10 minutes
+const emptyRoomTimers = new Map(); // roomId -> Timeout
+
+function cancelRoomReap(roomId) {
+  const t = emptyRoomTimers.get(roomId);
+  if (t) { clearTimeout(t); emptyRoomTimers.delete(roomId); }
+}
+
+function scheduleRoomReapIfEmpty(roomId, rooms, io) {
+  const room = rooms.get(roomId);
+  if (!room || room.users.size > 0) return;
+  cancelRoomReap(roomId);
+  const timer = setTimeout(() => {
+    const current = rooms.get(roomId);
+    if (current && current.users.size === 0) {
+      rooms.delete(roomId);
+      emptyRoomTimers.delete(roomId);
+      if (!current.isDM) {
+        io.emit('rooms-updated', [...rooms.entries()]
+          .filter(([, r]) => !r.isDM)
+          .map(([id, r]) => ({ id, name: r.name, hasPassword: !!r.password, userCount: r.users.size })));
+      }
+    }
+  }, EMPTY_ROOM_GRACE_MS);
+  emptyRoomTimers.set(roomId, timer);
+}
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
@@ -43,43 +110,16 @@ function getAuthedUser(socket) {
 }
 
 app.prepare().then(() => {
+  if (!dev && ALLOWED_ORIGIN.length === 0) {
+    console.warn('ALLOWED_ORIGIN is not set; cross-origin Socket.IO connections will be rejected.');
+  }
   const httpServer = createServer((req, res) => {
-    if (req.method === 'POST' && req.url.startsWith('/api/upload')) {
-      const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-      let body = [];
-      req.on('data', chunk => body.push(chunk));
-      req.on('end', () => {
-        try {
-          const boundary = req.headers['content-type'].split('boundary=')[1];
-          const buf = Buffer.concat(body);
-          const parts = parseMulipart(buf, boundary);
-          const results = [];
-          parts.forEach(part => {
-            if (part.filename) {
-              const ext = path.extname(part.filename);
-              const fname = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-              fs.writeFileSync(path.join(uploadDir, fname), part.data);
-              results.push({ url: `/uploads/${fname}`, name: part.filename, size: part.data.length });
-            }
-          });
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ files: results }));
-        } catch (e) {
-          res.writeHead(500);
-          res.end(JSON.stringify({ error: e.message }));
-        }
-      });
-      return;
-    }
-
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);
   });
 
   const io = new Server(httpServer, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: { origin: ALLOWED_ORIGIN, methods: ['GET', 'POST'] },
     maxHttpBufferSize: 50e6,
   });
 
@@ -105,11 +145,16 @@ app.prepare().then(() => {
     socket.on('create-room', ({ roomId, name, password }) => {
       const user = getAuthedUser(socket);
       if (!user) { socket.emit('room-error', { message: 'Set a username first' }); return; }
+      if (isRateLimited(socket, 'create-room')) {
+        socket.emit('room-error', { message: 'Too many rooms created — slow down' });
+        return;
+      }
       if (rooms.has(roomId)) {
         socket.emit('room-error', { message: 'Room ID already exists' });
         return;
       }
       rooms.set(roomId, { name, password: password || null, users: new Set(), messages: [], pinnedMessages: [] });
+      scheduleRoomReapIfEmpty(roomId, rooms, io);
       socket.emit('room-created', { roomId, name });
       io.emit('rooms-updated', [...rooms.entries()]
         .filter(([, r]) => !r.isDM)
@@ -119,6 +164,10 @@ app.prepare().then(() => {
     socket.on('join-room', ({ roomId, password }) => {
       const user = getAuthedUser(socket);
       if (!user) { socket.emit('room-error', { message: 'Set a username first' }); return; }
+      if (isRateLimited(socket, 'join-room')) {
+        socket.emit('room-error', { message: 'Too many room joins — slow down' });
+        return;
+      }
       const username = user.username; // authoritative, never trust client payload for this
 
       const room = rooms.get(roomId);
@@ -134,9 +183,11 @@ app.prepare().then(() => {
           socket.leave(user.roomId);
           io.to(user.roomId).emit('user-left', { username, roomId: user.roomId });
           io.to(user.roomId).emit('room-users', getRoomPublicInfo(user.roomId));
+          scheduleRoomReapIfEmpty(user.roomId, rooms, io);
         }
       }
 
+      cancelRoomReap(roomId);
       socket.join(roomId);
       room.users.add(username);
       users.set(socket.id, { ...user, roomId });
@@ -163,6 +214,7 @@ app.prepare().then(() => {
         socket.leave(roomId);
         io.to(roomId).emit('user-left', { username: user.username, roomId });
         io.to(roomId).emit('room-users', getRoomPublicInfo(roomId));
+        scheduleRoomReapIfEmpty(roomId, rooms, io);
       }
       users.set(socket.id, { ...user, roomId: null });
     });
@@ -170,8 +222,13 @@ app.prepare().then(() => {
     socket.on('send-message', (message, ack) => {
       const user = getAuthedUser(socket);
       if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
+      if (isRateLimited(socket, 'send-message')) { if (ack) ack({ error: 'Too many messages — slow down' }); return; }
       const room = rooms.get(message.roomId);
       if (!room) { if (ack) ack({ error: 'Room not found' }); return; }
+      if (user.roomId !== message.roomId || !room.users.has(user.username)) {
+        if (ack) ack({ error: 'Join the room before sending messages' });
+        return;
+      }
       // Force sender to the socket's authenticated identity — never trust
       // whatever `sender` the client put in the message payload.
       const fullMessage = { ...message, sender: user.username, status: 'delivered' };
@@ -201,22 +258,25 @@ app.prepare().then(() => {
 
     socket.on('typing', ({ roomId }) => {
       const user = getAuthedUser(socket);
-      if (!user) return;
+      if (!user || user.roomId !== roomId || isRateLimited(socket, 'typing')) return;
       socket.to(roomId).emit('user-typing', { username: user.username });
     });
     socket.on('stop-typing', ({ roomId }) => {
       const user = getAuthedUser(socket);
-      if (!user) return;
+      if (!user || user.roomId !== roomId) return;
       socket.to(roomId).emit('user-stop-typing', { username: user.username });
     });
 
     socket.on('read-message', ({ roomId, messageId }) => {
       const user = getAuthedUser(socket);
-      if (!user) return;
+      if (!user || user.roomId !== roomId || isRateLimited(socket, 'read-message')) return;
       const room = rooms.get(roomId);
       if (room) {
         const msg = room.messages.find(m => m.id === messageId);
-        if (msg) msg.status = 'read';
+        if (!msg || msg.sender === user.username) return;
+        msg.status = 'read';
+      } else {
+        return;
       }
       socket.to(roomId).emit('message-read', { messageId, username: user.username });
     });
@@ -232,31 +292,36 @@ app.prepare().then(() => {
     });
 
     // ── EDIT MESSAGE ────────────────────────────────────────────────────────
-    socket.on('edit-message', ({ roomId, messageId, newContent }) => {
+    socket.on('edit-message', ({ roomId, messageId, newContent }, ack) => {
       const user = getAuthedUser(socket);
-      if (!user) return;
+      if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
+      if (isRateLimited(socket, 'edit-message')) { if (ack) ack({ error: 'Too many edits — slow down' }); return; }
       const room = rooms.get(roomId);
-      if (!room) return;
+      if (!room || user.roomId !== roomId) { if (ack) ack({ error: 'Room not found or not joined' }); return; }
       const msg = room.messages.find(m => m.id === messageId);
       // Authorization check now uses the server-verified identity, not a
       // client-supplied username — this is what prevents forged edits.
-      if (!msg || msg.sender !== user.username) return;
+      if (!msg || msg.sender !== user.username) { if (ack) ack({ error: 'You can only edit your own messages' }); return; }
+      const content = typeof newContent === 'string' ? newContent.trim() : '';
+      if (!content || content.length > 10_000) { if (ack) ack({ error: 'Message must be between 1 and 10,000 characters' }); return; }
       if (!msg.editHistory) msg.editHistory = [];
       msg.editHistory.push({ content: msg.content, editedAt: Date.now() });
-      msg.content = newContent;
+      msg.content = content;
       msg.edited = true;
       msg.editedAt = Date.now();
-      io.to(roomId).emit('message-edited', { messageId, newContent, editedAt: msg.editedAt });
+      io.to(roomId).emit('message-edited', { messageId, newContent: content, editedAt: msg.editedAt });
+      if (ack) ack({ status: 'ok' });
     });
 
     // ── DELETE MESSAGE ───────────────────────────────────────────────────────
-    socket.on('delete-message', ({ roomId, messageId }) => {
+    socket.on('delete-message', ({ roomId, messageId }, ack) => {
       const user = getAuthedUser(socket);
-      if (!user) return;
+      if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
+      if (isRateLimited(socket, 'delete-message')) { if (ack) ack({ error: 'Too many deletes — slow down' }); return; }
       const room = rooms.get(roomId);
-      if (!room) return;
+      if (!room || user.roomId !== roomId) { if (ack) ack({ error: 'Room not found or not joined' }); return; }
       const msg = room.messages.find(m => m.id === messageId);
-      if (!msg || msg.sender !== user.username) return;
+      if (!msg || msg.sender !== user.username) { if (ack) ack({ error: 'You can only delete your own messages' }); return; }
       msg.deleted = true;
       msg.content = '';
       msg.type = 'deleted';
@@ -266,12 +331,13 @@ app.prepare().then(() => {
       }
       io.to(roomId).emit('message-deleted', { messageId, roomId });
       io.to(roomId).emit('pinned-messages-updated', { pinnedMessages: room.pinnedMessages || [] });
+      if (ack) ack({ status: 'ok' });
     });
 
     // ── REACTIONS ────────────────────────────────────────────────────────────
     socket.on('toggle-reaction', ({ roomId, messageId, emoji }) => {
       const user = getAuthedUser(socket);
-      if (!user) return;
+      if (!user || user.roomId !== roomId || isRateLimited(socket, 'toggle-reaction')) return;
       const room = rooms.get(roomId);
       if (!room) return;
       const msg = room.messages.find(m => m.id === messageId);
@@ -290,7 +356,7 @@ app.prepare().then(() => {
     // ── PIN MESSAGE ──────────────────────────────────────────────────────────
     socket.on('pin-message', ({ roomId, messageId }) => {
       const user = getAuthedUser(socket);
-      if (!user) return;
+      if (!user || user.roomId !== roomId || isRateLimited(socket, 'pin-message')) return;
       const room = rooms.get(roomId);
       if (!room) return;
       const msg = room.messages.find(m => m.id === messageId);
@@ -317,6 +383,10 @@ app.prepare().then(() => {
     socket.on('open-dm', ({ toUser }) => {
       const user = getAuthedUser(socket);
       if (!user) return;
+      if (isRateLimited(socket, 'open-dm')) {
+        socket.emit('room-error', { message: 'Too many direct-message requests — slow down' });
+        return;
+      }
       const fromUser = user.username; // authoritative — client can no longer impersonate the "from" side of a DM
       if (!toUser || toUser === fromUser) return;
 
@@ -331,6 +401,7 @@ app.prepare().then(() => {
           isDM: true,
           dmUsers: [fromUser, toUser],
         });
+        scheduleRoomReapIfEmpty(roomId, rooms, io);
       }
 
       // Also notify the other user if they're online
@@ -359,6 +430,7 @@ app.prepare().then(() => {
           room.users.delete(user.username);
           io.to(user.roomId).emit('user-left', { username: user.username });
           io.to(user.roomId).emit('room-users', getRoomPublicInfo(user.roomId));
+          scheduleRoomReapIfEmpty(user.roomId, rooms, io);
         }
       }
       users.delete(socket.id);
@@ -369,26 +441,3 @@ app.prepare().then(() => {
   const PORT = process.env.PORT || 3000;
   httpServer.listen(PORT, () => console.log(`> Ready on http://localhost:${PORT}`));
 });
-
-function parseMulipart(buffer, boundary) {
-  const parts = [];
-  const boundaryBuf = Buffer.from(`--${boundary}`);
-  let start = 0;
-  while (start < buffer.length) {
-    const boundaryIdx = buffer.indexOf(boundaryBuf, start);
-    if (boundaryIdx === -1) break;
-    const headerStart = boundaryIdx + boundaryBuf.length + 2;
-    const headerEnd = buffer.indexOf(Buffer.from('\r\n\r\n'), headerStart);
-    if (headerEnd === -1) break;
-    const headerStr = buffer.slice(headerStart, headerEnd).toString();
-    const dataStart = headerEnd + 4;
-    const nextBoundary = buffer.indexOf(boundaryBuf, dataStart);
-    const dataEnd = nextBoundary === -1 ? buffer.length : nextBoundary - 2;
-    const data = buffer.slice(dataStart, dataEnd);
-    const nameMatch = headerStr.match(/name="([^"]+)"/);
-    const filenameMatch = headerStr.match(/filename="([^"]+)"/);
-    parts.push({ name: nameMatch?.[1], filename: filenameMatch?.[1], data });
-    start = nextBoundary === -1 ? buffer.length : nextBoundary;
-  }
-  return parts;
-}
