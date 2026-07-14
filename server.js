@@ -34,6 +34,14 @@ function getDMRoomId(userA, userB) {
   return 'dm-' + [userA, userB].sort().join('-');
 }
 
+// Helper: the ONLY source of truth for "who is this socket" is the
+// server-side `users` map, populated by `set-username`. Never trust a
+// username passed in a client payload for anything security-relevant
+// (editing/deleting a message, sending as a given sender, DM identity, etc).
+function getAuthedUser(socket) {
+  return users.get(socket.id) || null;
+}
+
 app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
     if (req.method === 'POST' && req.url.startsWith('/api/upload')) {
@@ -79,8 +87,10 @@ app.prepare().then(() => {
     console.log('Client connected:', socket.id);
 
     socket.on('set-username', ({ username }) => {
-      users.set(socket.id, { username, roomId: null });
-      socket.emit('username-set', { username });
+      const trimmed = (username || '').trim().slice(0, 24);
+      if (!trimmed) return;
+      users.set(socket.id, { username: trimmed, roomId: null });
+      socket.emit('username-set', { username: trimmed });
     });
 
     socket.on('get-rooms', () => {
@@ -93,6 +103,8 @@ app.prepare().then(() => {
     });
 
     socket.on('create-room', ({ roomId, name, password }) => {
+      const user = getAuthedUser(socket);
+      if (!user) { socket.emit('room-error', { message: 'Set a username first' }); return; }
       if (rooms.has(roomId)) {
         socket.emit('room-error', { message: 'Room ID already exists' });
         return;
@@ -104,15 +116,18 @@ app.prepare().then(() => {
         .map(([id, r]) => ({ id, name: r.name, hasPassword: !!r.password, userCount: r.users.size })));
     });
 
-    socket.on('join-room', ({ roomId, username, password }) => {
+    socket.on('join-room', ({ roomId, password }) => {
+      const user = getAuthedUser(socket);
+      if (!user) { socket.emit('room-error', { message: 'Set a username first' }); return; }
+      const username = user.username; // authoritative, never trust client payload for this
+
       const room = rooms.get(roomId);
       if (!room) { socket.emit('room-error', { message: 'Room not found' }); return; }
       if (room.password && room.password !== password) {
         socket.emit('room-error', { message: 'Incorrect password' }); return;
       }
 
-      const user = users.get(socket.id);
-      if (user && user.roomId) {
+      if (user.roomId) {
         const oldRoom = rooms.get(user.roomId);
         if (oldRoom) {
           oldRoom.users.delete(username);
@@ -124,7 +139,7 @@ app.prepare().then(() => {
 
       socket.join(roomId);
       room.users.add(username);
-      users.set(socket.id, { username, roomId });
+      users.set(socket.id, { ...user, roomId });
 
       socket.emit('joined-room', {
         roomId,
@@ -140,7 +155,7 @@ app.prepare().then(() => {
     });
 
     socket.on('leave-room', ({ roomId }) => {
-      const user = users.get(socket.id);
+      const user = getAuthedUser(socket);
       if (!user) return;
       const room = rooms.get(roomId);
       if (room) {
@@ -153,63 +168,79 @@ app.prepare().then(() => {
     });
 
     socket.on('send-message', (message, ack) => {
+      const user = getAuthedUser(socket);
+      if (!user) { if (ack) ack({ error: 'Set a username first' }); return; }
       const room = rooms.get(message.roomId);
       if (!room) { if (ack) ack({ error: 'Room not found' }); return; }
-
-      const fullMessage = { ...message, status: 'delivered' };
+      // Force sender to the socket's authenticated identity — never trust
+      // whatever `sender` the client put in the message payload.
+      const fullMessage = { ...message, sender: user.username, status: 'delivered' };
       room.messages.push(fullMessage);
       if (room.messages.length > 500) room.messages.shift();
 
       // Handle @mentions — notify mentioned users
-      if (message.type === 'text' && message.content) {
-        const mentions = [...message.content.matchAll(/@(\w+)/g)].map(m => m[1]);
+      if (fullMessage.type === 'text' && fullMessage.content) {
+        const mentions = [...fullMessage.content.matchAll(/@(\w+)/g)].map(m => m[1]);
         mentions.forEach(mentionedUser => {
           const mentionedSocket = [...users.entries()].find(([, u]) => u.username === mentionedUser);
           if (mentionedSocket) {
             io.to(mentionedSocket[0]).emit('mention-notification', {
-              from: message.sender,
-              roomId: message.roomId,
+              from: fullMessage.sender,
+              roomId: fullMessage.roomId,
               roomName: room.name,
-              preview: message.content.slice(0, 80),
-              messageId: message.id,
+              preview: fullMessage.content.slice(0, 80),
+              messageId: fullMessage.id,
             });
           }
         });
       }
 
       socket.to(message.roomId).emit('new-message', fullMessage);
-      if (ack) ack({ status: 'delivered', messageId: message.id });
+      if (ack) ack({ status: 'delivered', messageId: message.id, message: fullMessage });
     });
 
-    socket.on('typing', ({ roomId, username }) => {
-      socket.to(roomId).emit('user-typing', { username });
+    socket.on('typing', ({ roomId }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
+      socket.to(roomId).emit('user-typing', { username: user.username });
     });
-    socket.on('stop-typing', ({ roomId, username }) => {
-      socket.to(roomId).emit('user-stop-typing', { username });
+    socket.on('stop-typing', ({ roomId }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
+      socket.to(roomId).emit('user-stop-typing', { username: user.username });
     });
 
-    socket.on('read-message', ({ roomId, messageId, username }) => {
+    socket.on('read-message', ({ roomId, messageId }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
       const room = rooms.get(roomId);
       if (room) {
         const msg = room.messages.find(m => m.id === messageId);
         if (msg) msg.status = 'read';
       }
-      socket.to(roomId).emit('message-read', { messageId, username });
+      socket.to(roomId).emit('message-read', { messageId, username: user.username });
     });
 
     socket.on('send-blob', ({ roomId, message }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
       const room = rooms.get(roomId);
       if (!room) return;
-      room.messages.push(message);
-      io.to(roomId).emit('new-message', message);
+      const fullMessage = { ...message, sender: user.username };
+      room.messages.push(fullMessage);
+      io.to(roomId).emit('new-message', fullMessage);
     });
 
     // ── EDIT MESSAGE ────────────────────────────────────────────────────────
-    socket.on('edit-message', ({ roomId, messageId, newContent, username }) => {
+    socket.on('edit-message', ({ roomId, messageId, newContent }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
       const room = rooms.get(roomId);
       if (!room) return;
       const msg = room.messages.find(m => m.id === messageId);
-      if (!msg || msg.sender !== username) return;
+      // Authorization check now uses the server-verified identity, not a
+      // client-supplied username — this is what prevents forged edits.
+      if (!msg || msg.sender !== user.username) return;
       if (!msg.editHistory) msg.editHistory = [];
       msg.editHistory.push({ content: msg.content, editedAt: Date.now() });
       msg.content = newContent;
@@ -219,11 +250,13 @@ app.prepare().then(() => {
     });
 
     // ── DELETE MESSAGE ───────────────────────────────────────────────────────
-    socket.on('delete-message', ({ roomId, messageId, username }) => {
+    socket.on('delete-message', ({ roomId, messageId }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
       const room = rooms.get(roomId);
       if (!room) return;
       const msg = room.messages.find(m => m.id === messageId);
-      if (!msg || msg.sender !== username) return;
+      if (!msg || msg.sender !== user.username) return;
       msg.deleted = true;
       msg.content = '';
       msg.type = 'deleted';
@@ -236,15 +269,17 @@ app.prepare().then(() => {
     });
 
     // ── REACTIONS ────────────────────────────────────────────────────────────
-    socket.on('toggle-reaction', ({ roomId, messageId, emoji, username }) => {
+    socket.on('toggle-reaction', ({ roomId, messageId, emoji }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
       const room = rooms.get(roomId);
       if (!room) return;
       const msg = room.messages.find(m => m.id === messageId);
       if (!msg) return;
       if (!msg.reactions) msg.reactions = {};
       if (!msg.reactions[emoji]) msg.reactions[emoji] = [];
-      const idx = msg.reactions[emoji].indexOf(username);
-      if (idx === -1) msg.reactions[emoji].push(username);
+      const idx = msg.reactions[emoji].indexOf(user.username);
+      if (idx === -1) msg.reactions[emoji].push(user.username);
       else {
         msg.reactions[emoji].splice(idx, 1);
         if (msg.reactions[emoji].length === 0) delete msg.reactions[emoji];
@@ -253,7 +288,9 @@ app.prepare().then(() => {
     });
 
     // ── PIN MESSAGE ──────────────────────────────────────────────────────────
-    socket.on('pin-message', ({ roomId, messageId, username }) => {
+    socket.on('pin-message', ({ roomId, messageId }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
       const room = rooms.get(roomId);
       if (!room) return;
       const msg = room.messages.find(m => m.id === messageId);
@@ -269,7 +306,7 @@ app.prepare().then(() => {
           id: msg.id,
           sender: msg.sender,
           content: msg.type === 'text' ? msg.content : `[${msg.type}]`,
-          pinnedBy: username,
+          pinnedBy: user.username,
           pinnedAt: Date.now(),
         });
       }
@@ -277,7 +314,12 @@ app.prepare().then(() => {
     });
 
     // ── DIRECT MESSAGE ───────────────────────────────────────────────────────
-    socket.on('open-dm', ({ fromUser, toUser }) => {
+    socket.on('open-dm', ({ toUser }) => {
+      const user = getAuthedUser(socket);
+      if (!user) return;
+      const fromUser = user.username; // authoritative — client can no longer impersonate the "from" side of a DM
+      if (!toUser || toUser === fromUser) return;
+
       const roomId = getDMRoomId(fromUser, toUser);
       if (!rooms.has(roomId)) {
         rooms.set(roomId, {
