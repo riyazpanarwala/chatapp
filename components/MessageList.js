@@ -205,6 +205,7 @@ function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
 
   const handleKeyDown = (event) => {
     if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+    if (expanded) return; // full emoji picker manages its own arrow/tab navigation
     if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     const items = [...ref.current.querySelectorAll('button')];
@@ -233,7 +234,7 @@ function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
       aria-label="Choose a reaction"
       style={{ position: 'fixed', zIndex: 9999, top, left }}
       onMouseDown={(e) => e.stopPropagation()}
-      onKeyDown={expanded ? undefined : handleKeyDown}
+      onKeyDown={handleKeyDown}
     >
       {!expanded ? (
         <>

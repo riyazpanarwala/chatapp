@@ -607,7 +607,8 @@ app.prepare().then(() => {
     // message (most messages are never edited, so that's wasted payload),
     // expose it via a small on-demand lookup the client can call when the
     // user actually wants to see it.
-    socket.on('message-edit-history', ({ roomId, messageId }, ack) => {
+    socket.on('message-edit-history', (payload, ack) => {
+      const { roomId, messageId } = payload || {};
       const user = getAuthedUser(socket);
       const room = rooms.get(roomId);
       if (isRateLimited(socket, 'message-edit-history')) { if (ack) ack({ error: 'Too many requests — slow down' }); return; }

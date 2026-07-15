@@ -530,6 +530,7 @@ html, body {
 .file-info { display: flex; flex-direction: column; flex: 1; }
 .file-name { font-size: 13px; font-weight: 500; }
 .file-size { font-size: 11px; color: var(--text3); font-family: var(--font-mono); }
+.download-icon { font-size: 16px; color: var(--accent); }
 .audio-msg { display: flex; align-items: center; gap: 8px; }
 .audio-icon { font-size: 18px; }
 .audio-player { width: 180px; height: 32px; }
