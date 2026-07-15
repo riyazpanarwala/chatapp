@@ -6,8 +6,10 @@ import InputBar from '../components/InputBar';
 import UsernameScreen from '../components/UsernameScreen';
 import GlobalSearch from '../components/GlobalSearch';
 import RoomSettings from '../components/RoomSettings';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { MessageIcon, MailIcon, SearchIcon, BellIcon, XIcon } from '../lib/icons';
+
+const NOTIFICATION_TTL_MS = 5000;
 
 export default function Home() {
   const {
@@ -27,6 +29,7 @@ export default function Home() {
     joinRoom, createRoom, sendMessage, handleTyping, leaveRoom,
     editMessage, deleteMessage, markMessageRead, toggleReaction, pinMessage,
     openDM, forwardMessage, manageRoom,
+    retryMessage, getMessageEditHistory,
   } = useChat();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -65,14 +68,43 @@ export default function Home() {
     });
   };
 
-  // Auto-dismiss notifications after 5s
+  // Auto-dismiss each notification independently, NOTIFICATION_TTL_MS after
+  // it first appears. Previously this reset a single shared timer targeting
+  // notifications[0] every time the array changed, so a steady trickle of
+  // new mentions/DMs (faster than one every 5s) could keep pushing back the
+  // oldest notification's dismissal indefinitely, leaking entries in state
+  // forever (only the *rendered* list was capped, via `.slice(0, 3)`).
+  const notifTimersRef = useRef(new Map()); // id -> Timeout
+
   useEffect(() => {
-    if (notifications.length === 0) return;
-    const timer = setTimeout(() => {
-      dismissNotification(notifications[0].id);
-    }, 5000);
-    return () => clearTimeout(timer);
+    const timers = notifTimersRef.current;
+    const liveIds = new Set(notifications.map(n => n.id));
+
+    // Start a timer for any notification we haven't seen yet.
+    notifications.forEach(n => {
+      if (timers.has(n.id)) return;
+      const timer = setTimeout(() => {
+        timers.delete(n.id);
+        dismissNotification(n.id);
+      }, NOTIFICATION_TTL_MS);
+      timers.set(n.id, timer);
+    });
+
+    // Clean up timers for notifications that are already gone (e.g.
+    // dismissed manually via the close button) so we don't leak Timeouts.
+    for (const [id, timer] of timers) {
+      if (!liveIds.has(id)) {
+        clearTimeout(timer);
+        timers.delete(id);
+      }
+    }
   }, [notifications, dismissNotification]);
+
+  // Clear any outstanding timers on unmount.
+  useEffect(() => () => {
+    notifTimersRef.current.forEach(timer => clearTimeout(timer));
+    notifTimersRef.current.clear();
+  }, []);
 
   if (!username) {
     return <UsernameScreen onSetUsername={initUsername} />;
@@ -237,6 +269,8 @@ export default function Home() {
                 onLoadMore={loadMoreMessages}
                 onReplyMessage={setReplyingTo}
                 onForwardMessage={forwardMessage}
+                onRetryMessage={retryMessage}
+                onViewEditHistory={getMessageEditHistory}
                 forwardTargets={[
                   ...rooms.map(room => ({ id: room.id, name: room.name, isDM: false })),
                   ...dmList.map(dm => ({ id: dm.roomId, name: dm.with, isDM: true })),
