@@ -317,6 +317,7 @@ html, body {
   position: relative; transition: opacity 0.2s, transform 0.15s; border: 1px solid transparent;
 }
 .bubble.pending { opacity: 0.6; }
+.bubble.failed { opacity: 0.85; border-color: rgba(245, 99, 107, 0.4); }
 .bubble-self {
   background: var(--bubble-self);
   border-bottom-right-radius: 5px;
@@ -332,6 +333,28 @@ html, body {
 .bubble-time { font-size: 10px; color: rgba(255,255,255,0.45); font-family: var(--font-mono); }
 .edited-label { font-size: 10px; color: rgba(255,255,255,0.35); font-style: italic; }
 .pinned-label { font-size: 10px; }
+
+/* ── Failed-send retry affordance ─────────────────────────────────────────── */
+.retry-send-btn {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: rgba(245, 99, 107, 0.18); color: #ffd7d9; border: 1px solid rgba(245, 99, 107, 0.4);
+  border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 700; cursor: pointer;
+  font-family: var(--font-mono); letter-spacing: 0.02em; transition: background 0.15s;
+}
+.retry-send-btn:hover { background: rgba(245, 99, 107, 0.3); }
+
+/* ── Edit history dialog ──────────────────────────────────────────────────── */
+.edit-history-modal { width: min(480px, calc(100vw - 28px)); max-height: min(70vh, 560px); overflow: auto; }
+.edit-history-list { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.edit-history-item { border: 1px solid var(--border); border-radius: 12px; padding: 10px 13px; background: var(--glass); }
+.edit-history-item.current { border-color: rgba(91, 110, 245, 0.4); background: var(--accent-soft); }
+.edit-history-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10.5px; color: var(--text3); font-family: var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;
+}
+.edit-history-item.current .edit-history-meta { color: var(--accent); }
+.edit-history-item p { font-size: 13.5px; color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; line-height: 1.5; }
 
 /* ── Hover action bar ─────────────────────────────────────────────────────── */
 .msg-actions {
@@ -371,6 +394,15 @@ html, body {
   transition: transform 0.12s, background 0.12s;
 }
 .quick-reaction-btn:hover { transform: scale(1.3); background: var(--glass-hover); }
+.quick-reaction-btn.quick-reaction-more { color: var(--text2); font-size: 15px; }
+.quick-reaction-btn.quick-reaction-more:hover { transform: scale(1.1); color: var(--text); }
+
+/* Expanded state: picker grows into a small panel hosting the full emoji picker */
+.quick-reaction-picker.expanded {
+  flex-direction: column; align-items: stretch; gap: 0;
+  padding: 6px; border-radius: 18px; width: 320px; max-height: 360px; overflow: hidden;
+}
+.quick-reaction-full { width: 100%; border-radius: 12px; overflow: hidden; }
 
 /* ── Mention highlighting ─────────────────────────────────────────────────── */
 .mention-tag {
@@ -498,7 +530,6 @@ html, body {
 .file-info { display: flex; flex-direction: column; flex: 1; }
 .file-name { font-size: 13px; font-weight: 500; }
 .file-size { font-size: 11px; color: var(--text3); font-family: var(--font-mono); }
-.download-icon { font-size: 16px; color: var(--accent); }
 .audio-msg { display: flex; align-items: center; gap: 8px; }
 .audio-icon { font-size: 18px; }
 .audio-player { width: 180px; height: 32px; }
@@ -645,6 +676,7 @@ html, body {
   .emoji-popup { width: 280px; }
   .notif-stack { right: 8px; left: 8px; max-width: none; }
   .msg-actions { opacity: 1; pointer-events: all; }
+  .quick-reaction-picker.expanded { width: 280px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

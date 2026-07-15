@@ -35,6 +35,7 @@ const RATE_LIMITS = {
   'load-more-messages': { max: 30, windowMs: 10_000 },
   'message-context': { max: 30, windowMs: 10_000 },
   'manage-room': { max: 30, windowMs: 60_000 },
+  'message-edit-history': { max: 30, windowMs: 60_000 },
 };
 
 function isRateLimited(socket, key) {
@@ -84,6 +85,19 @@ const profiles = new Map(); // username -> { avatar }
 
 function findUserSockets(username) {
   return [...users.entries()].filter(([, user]) => user.username === username).map(([id]) => id);
+}
+
+// True if some OTHER socket connection (not excludeSocketId) belonging to
+// `username` is still considered "in" `roomId`. Used so that a user with the
+// same room open in multiple tabs/devices isn't marked offline/removed from
+// a room just because one of their tabs navigated away or disconnected.
+function hasOtherSocketInRoom(username, roomId, excludeSocketId) {
+  if (!roomId) return false;
+  for (const [socketId, user] of users) {
+    if (socketId === excludeSocketId) continue;
+    if (user.username === username && user.roomId === roomId) return true;
+  }
+  return false;
 }
 
 function roomListFor(username) {
@@ -281,11 +295,16 @@ app.prepare().then(() => {
       if (user.roomId) {
         const oldRoom = rooms.get(user.roomId);
         if (oldRoom) {
-          oldRoom.users.delete(username);
+          // Only mark the user as having "left" the old room if they don't
+          // have another socket (e.g. a second tab) still parked in it.
+          const stillPresentElsewhere = hasOtherSocketInRoom(username, user.roomId, socket.id);
           socket.leave(user.roomId);
-          io.to(user.roomId).emit('user-left', { username, roomId: user.roomId });
+          if (!stillPresentElsewhere) {
+            oldRoom.users.delete(username);
+            io.to(user.roomId).emit('user-left', { username, roomId: user.roomId });
+            scheduleRoomReapIfEmpty(user.roomId, rooms, io);
+          }
           io.to(user.roomId).emit('room-users', getRoomPublicInfo(user.roomId));
-          scheduleRoomReapIfEmpty(user.roomId, rooms, io);
         }
       }
 
@@ -322,11 +341,16 @@ app.prepare().then(() => {
       if (!user) return;
       const room = rooms.get(roomId);
       if (room) {
-        room.users.delete(user.username);
+        // Same multi-tab guard as join-room: don't drop presence if another
+        // socket for this user is still in the room.
+        const stillPresentElsewhere = hasOtherSocketInRoom(user.username, roomId, socket.id);
         socket.leave(roomId);
-        io.to(roomId).emit('user-left', { username: user.username, roomId });
+        if (!stillPresentElsewhere) {
+          room.users.delete(user.username);
+          io.to(roomId).emit('user-left', { username: user.username, roomId });
+          scheduleRoomReapIfEmpty(roomId, rooms, io);
+        }
         io.to(roomId).emit('room-users', getRoomPublicInfo(roomId));
-        scheduleRoomReapIfEmpty(roomId, rooms, io);
         if (!room.isDM) emitRoomLists(io);
       }
       users.set(socket.id, { ...user, roomId: null });
@@ -343,6 +367,22 @@ app.prepare().then(() => {
         if (ack) ack({ error: 'Join the room before sending messages' });
         return;
       }
+
+      // Idempotency guard: the offline-first client saves a message locally
+      // with a client-generated id and resends it on reconnect if it never
+      // saw a "delivered" ack — including cases where we *did* receive and
+      // broadcast it, but the ack itself was lost to a timeout rather than
+      // a real disconnect. Without this check that resend would insert and
+      // re-broadcast a second copy of the same message (and since two
+      // stored messages would then share an id, edit/delete/pin — all of
+      // which look up `room.messages.find(m => m.id === ...)` — would only
+      // ever affect the first one).
+      const existingMessage = room.messages.find(m => m.id === message.id);
+      if (existingMessage) {
+        if (ack) ack({ status: 'delivered', messageId: existingMessage.id, message: existingMessage });
+        return;
+      }
+
       // Force sender to the socket's authenticated identity — never trust
       // whatever `sender` the client put in the message payload.
       const fullMessage = buildMessage(message, user, room);
@@ -407,6 +447,14 @@ app.prepare().then(() => {
       if (!room || user.roomId !== roomId || !room.users.has(user.username) || room.bans?.has(user.username)) {
         if (ack) ack({ error: 'Join the room before sending messages' }); return;
       }
+
+      // Same idempotency guard as send-message — see comment there.
+      const existingBlobMessage = message?.id ? room.messages.find(m => m.id === message.id) : null;
+      if (existingBlobMessage) {
+        if (ack) ack({ status: 'delivered', messageId: existingBlobMessage.id, message: existingBlobMessage });
+        return;
+      }
+
       const fullMessage = buildMessage({ ...message, roomId }, user, room, roomId);
       if (!fullMessage) { if (ack) ack({ error: 'Invalid message' }); return; }
       room.messages.push(fullMessage);
@@ -553,6 +601,32 @@ app.prepare().then(() => {
       if (ack) ack({ status: 'ok' });
     });
 
+    // ── EDIT HISTORY (on-demand) ─────────────────────────────────────────────
+    // editHistory has always been tracked on the server (see edit-message
+    // above) but was never sent anywhere. Rather than pushing it with every
+    // message (most messages are never edited, so that's wasted payload),
+    // expose it via a small on-demand lookup the client can call when the
+    // user actually wants to see it.
+    socket.on('message-edit-history', ({ roomId, messageId }, ack) => {
+      const user = getAuthedUser(socket);
+      const room = rooms.get(roomId);
+      if (isRateLimited(socket, 'message-edit-history')) { if (ack) ack({ error: 'Too many requests — slow down' }); return; }
+      const allowed = room && (room.isDM ? room.dmUsers?.includes(user?.username) : room.members?.has(user?.username));
+      if (!user || !allowed || typeof messageId !== 'string') { if (ack) ack({ error: 'Message is unavailable' }); return; }
+      const msg = room.messages.find(m => m.id === messageId);
+      if (!msg) { if (ack) ack({ error: 'Message is unavailable' }); return; }
+      if (!msg.edited) { if (ack) ack({ history: [] }); return; }
+      // Each stored entry holds the content that was *replaced* and when
+      // that replacement happened, so the full timeline is: every past
+      // version from editHistory, followed by the current content as the
+      // most recent version.
+      const history = [
+        ...(msg.editHistory || []).map(entry => ({ content: entry.content, editedAt: entry.editedAt, current: false })),
+        { content: msg.content, editedAt: msg.editedAt || msg.timestamp, current: true },
+      ];
+      if (ack) ack({ history });
+    });
+
     // ── DELETE MESSAGE ───────────────────────────────────────────────────────
     socket.on('delete-message', ({ roomId, messageId }, ack) => {
       const user = getAuthedUser(socket);
@@ -670,10 +744,15 @@ app.prepare().then(() => {
       if (user && user.roomId) {
         const room = rooms.get(user.roomId);
         if (room) {
-          room.users.delete(user.username);
-          io.to(user.roomId).emit('user-left', { username: user.username });
+          // Multi-tab guard: only remove this user from the room's presence
+          // if none of their other socket connections are still parked there.
+          const stillPresentElsewhere = hasOtherSocketInRoom(user.username, user.roomId, socket.id);
+          if (!stillPresentElsewhere) {
+            room.users.delete(user.username);
+            io.to(user.roomId).emit('user-left', { username: user.username });
+            scheduleRoomReapIfEmpty(user.roomId, rooms, io);
+          }
           io.to(user.roomId).emit('room-users', getRoomPublicInfo(user.roomId));
-          scheduleRoomReapIfEmpty(user.roomId, rooms, io);
           if (!room.isDM) emitRoomLists(io);
         }
       }

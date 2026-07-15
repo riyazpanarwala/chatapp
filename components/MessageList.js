@@ -5,13 +5,15 @@ import VideoCallNotification from './VideoCallNotification';
 import {
   PinIcon, SmileIcon, EditIcon, TrashIcon,
   CheckIcon, CheckCheckIcon, ClockIcon, MoreIcon,
+  AlertIcon, RefreshIcon, HistoryIcon, PlusIcon,
 } from '../lib/icons';
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
 function StatusIcon({ status }) {
-  const colors = { pending: '#7a8199', sent: '#9aa1b5', delivered: '#9aa1b5', read: '#5b6ef5' };
+  const colors = { pending: '#7a8199', sent: '#9aa1b5', delivered: '#9aa1b5', read: '#5b6ef5', failed: '#f5636b' };
   const color = colors[status] || '#7a8199';
+  if (status === 'failed') return <AlertIcon size={12} style={{ color }} />;
   if (status === 'pending') return <ClockIcon size={12} style={{ color }} />;
   if (status === 'sent') return <CheckIcon size={12} style={{ color }} />;
   return <CheckCheckIcon size={13} style={{ color }} />;
@@ -84,7 +86,7 @@ function ReactionBar({ reactions = {}, username, onToggle }) {
   );
 }
 
-function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin, onReply, onForward, onClose }) {
+function ContextMenu({ x, y, isSelf, isPinned, isEdited, onDelete, onEdit, onReact, onPin, onReply, onForward, onViewHistory, onClose }) {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -147,6 +149,11 @@ function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin,
       <button role="menuitem" className="ctx-btn" onClick={() => { onPin(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <PinIcon size={15} /> {isPinned ? 'Unpin message' : 'Pin message'}
       </button>
+      {isEdited && (
+        <button role="menuitem" className="ctx-btn" onClick={() => { onViewHistory(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <HistoryIcon size={15} /> View edit history
+        </button>
+      )}
       {isSelf && (
         <button role="menuitem" className="ctx-btn" onClick={() => { onEdit(); onClose(); }} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <EditIcon size={15} /> Edit message
@@ -164,6 +171,9 @@ function ContextMenu({ x, y, isSelf, isPinned, onDelete, onEdit, onReact, onPin,
 
 function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
   const ref = useRef(null);
+  const [expanded, setExpanded] = useState(false);
+  const [FullEmojiPicker, setFullEmojiPicker] = useState(null);
+  const emojiImportRef = useRef(null);
 
   useEffect(() => {
     const handler = (e) => {
@@ -184,6 +194,15 @@ function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
     ref.current?.querySelector('button')?.focus();
   }, []);
 
+  const openFullPicker = useCallback(async () => {
+    setExpanded(true);
+    if (!emojiImportRef.current) {
+      emojiImportRef.current = import('emoji-picker-react');
+    }
+    const module = await emojiImportRef.current;
+    setFullEmojiPicker(() => module.default);
+  }, []);
+
   const handleKeyDown = (event) => {
     if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
     if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
@@ -198,8 +217,10 @@ function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
 
   if (!anchorRect || typeof document === 'undefined') return null;
 
-  const pickerWidth = 252;
-  const top = Math.max(8, anchorRect.top - 52);
+  const pickerWidth = expanded ? 320 : 252;
+  const top = expanded
+    ? Math.max(8, Math.min(anchorRect.top - 60, window.innerHeight - 400))
+    : Math.max(8, anchorRect.top - 52);
   const left = isSelf
     ? Math.max(8, anchorRect.right - pickerWidth)
     : Math.min(anchorRect.left, window.innerWidth - pickerWidth - 8);
@@ -207,18 +228,45 @@ function QuickReactionPicker({ anchorRect, isSelf, onPick, onClose }) {
   return createPortal(
     <div
       ref={ref}
-      className="quick-reaction-picker"
+      className={`quick-reaction-picker ${expanded ? 'expanded' : ''}`}
       role="menu"
       aria-label="Choose a reaction"
       style={{ position: 'fixed', zIndex: 9999, top, left }}
       onMouseDown={(e) => e.stopPropagation()}
-      onKeyDown={handleKeyDown}
+      onKeyDown={expanded ? undefined : handleKeyDown}
     >
-      {REACTION_EMOJIS.map(e => (
-        <button key={e} role="menuitem" className="quick-reaction-btn" aria-label={`React with ${e}`} onClick={() => { onPick(e); onClose(); }}>
-          {e}
-        </button>
-      ))}
+      {!expanded ? (
+        <>
+          {REACTION_EMOJIS.map(e => (
+            <button key={e} role="menuitem" className="quick-reaction-btn" aria-label={`React with ${e}`} onClick={() => { onPick(e); onClose(); }}>
+              {e}
+            </button>
+          ))}
+          <button
+            className="quick-reaction-btn quick-reaction-more"
+            aria-label="More reactions"
+            title="More reactions"
+            onClick={openFullPicker}
+          >
+            <PlusIcon size={15} />
+          </button>
+        </>
+      ) : (
+        <div className="quick-reaction-full">
+          {FullEmojiPicker ? (
+            <FullEmojiPicker
+              onEmojiClick={(emojiData) => { onPick(emojiData.emoji); onClose(); }}
+              width="100%"
+              height={320}
+              theme="dark"
+              lazyLoadEmojis
+              previewConfig={{ showPreview: false }}
+            />
+          ) : (
+            <div className="emoji-picker-loading" aria-busy="true">Loading emoji…</div>
+          )}
+        </div>
+      )}
     </div>,
     document.body
   );
@@ -304,6 +352,53 @@ function ForwardDialog({ message, targets, onForward, onCancel }) {
   );
 }
 
+function EditHistoryDialog({ message, onFetchHistory, onClose }) {
+  const [state, setState] = useState({ loading: true, error: null, history: [] });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await onFetchHistory?.(message.id);
+      if (cancelled) return;
+      if (result?.error) setState({ loading: false, error: result.error, history: [] });
+      else setState({ loading: false, error: null, history: result?.history || [] });
+    })();
+    return () => { cancelled = true; };
+  }, [message.id, onFetchHistory]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal edit-history-modal" role="dialog" aria-modal="true" aria-label="Edit history" onMouseDown={event => event.stopPropagation()}>
+        <div className="modal-title-row"><h3>Edit history</h3><button className="icon-btn" onClick={onClose} aria-label="Close">×</button></div>
+        {state.loading && <p className="empty-hint">Loading…</p>}
+        {!state.loading && state.error && <p className="empty-hint">{state.error}</p>}
+        {!state.loading && !state.error && (
+          <div className="edit-history-list">
+            {state.history.length === 0 && <p className="empty-hint">No earlier versions found.</p>}
+            {state.history.map((version, index) => (
+              <div key={index} className={`edit-history-item ${version.current ? 'current' : ''}`}>
+                <div className="edit-history-meta">
+                  <span>{version.current ? 'Current version' : `Version ${index + 1}`}</span>
+                  <time>{version.editedAt ? new Date(version.editedAt).toLocaleString() : ''}</time>
+                </div>
+                <p>{version.content}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function LinkPreviews({ content }) {
   const urls = [...new Set(((content || '').match(/https?:\/\/[^\s<]+/gi) || [])
     .map(url => url.replace(/[.,;:!?)\]]+$/, ''))
@@ -374,6 +469,7 @@ export default function MessageList({
   onDeleteMessage, onEditMessage, onToggleReaction, onPinMessage,
   onMessageRead, onReplyMessage, onForwardMessage, forwardTargets = [],
   onLoadMore, hasMoreMessages, isLoadingOlder, searchQuery, currentRoom, roomUsers = [],
+  onRetryMessage, onViewEditHistory,
   isLoading = false,
 }) {
   const listRef = useRef(null);
@@ -385,6 +481,7 @@ export default function MessageList({
   const [showPinned, setShowPinned] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState(null);
   const [forwardCandidate, setForwardCandidate] = useState(null);
+  const [historyCandidate, setHistoryCandidate] = useState(null);
 
   useEffect(() => {
     if (!searchQuery) {
@@ -538,7 +635,7 @@ export default function MessageList({
                 : msg.sender?.[0]?.toUpperCase()}</div>}
 
               <div className="bubble-col">
-                <div className={`bubble ${isSelf ? 'bubble-self' : 'bubble-other'} ${msg.status === 'pending' ? 'pending' : ''}`}>
+                <div className={`bubble ${isSelf ? 'bubble-self' : 'bubble-other'} ${msg.status === 'pending' ? 'pending' : ''} ${msg.status === 'failed' ? 'failed' : ''}`}>
                   {!isSelf && !msg.deleted && <span className="bubble-sender">{msg.sender}</span>}
 
                   {msg.forwardedFrom && <div className="forwarded-label">Forwarded from {msg.forwardedFrom.sender}</div>}
@@ -568,6 +665,16 @@ export default function MessageList({
                     <div className="bubble-meta">
                       {msg.edited && <span className="edited-label">edited</span>}
                       {isPinned && <span className="pinned-label"><PinIcon size={10} /></span>}
+                      {isSelf && msg.status === 'failed' && (
+                        <button
+                          type="button"
+                          className="retry-send-btn"
+                          title="Delivery unconfirmed — tap to retry"
+                          onClick={(e) => { e.stopPropagation(); onRetryMessage?.(msg); }}
+                        >
+                          <RefreshIcon size={10} /> Retry
+                        </button>
+                      )}
                       <span className="bubble-time">{formatTime(msg.timestamp)}</span>
                       {isSelf && <StatusIcon status={msg.status} />}
                     </div>
@@ -618,10 +725,12 @@ export default function MessageList({
           y={contextMenu.y}
           isSelf={contextMenu.msg.sender === username}
           isPinned={pinnedMessages.some(p => p.id === contextMenu.msg.id)}
+          isEdited={!!contextMenu.msg.edited}
           onDelete={() => setDeleteCandidate(contextMenu.msg)}
           onEdit={() => setEditingId(contextMenu.msg.id)}
           onReply={() => onReplyMessage?.(contextMenu.msg)}
           onForward={() => setForwardCandidate(contextMenu.msg)}
+          onViewHistory={() => setHistoryCandidate(contextMenu.msg)}
           onReact={() => {
             const msg = contextMenu.msg;
             const rect = contextMenu;
@@ -664,6 +773,13 @@ export default function MessageList({
             await onForwardMessage?.(forwardCandidate.id, targetId);
             setForwardCandidate(null);
           }}
+        />
+      )}
+      {historyCandidate && (
+        <EditHistoryDialog
+          message={historyCandidate}
+          onFetchHistory={onViewEditHistory}
+          onClose={() => setHistoryCandidate(null)}
         />
       )}
     </div>
