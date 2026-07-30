@@ -14,8 +14,8 @@ export default function UsernameScreen({ onSetUsername }) {
     <div className="username-screen">
       <div className="username-card">
         <div className="logo-mark" aria-hidden="true" />
-        <h1 className="logo-text">FluxChat</h1>
-        <p className="logo-sub">REAL-TIME · OFFLINE-FIRST · ENCRYPTED</p>
+        <h1 className="logo-text">FluxChat <span style={{ fontSize: '0.45em', opacity: 0.85, fontWeight: 400, display: 'block', marginTop: '2px', letterSpacing: '0.1em' }}>BY PANARWALA</span></h1>
+        <p className="logo-sub">PANARWALA · REAL-TIME · OFFLINE-FIRST · ENCRYPTED</p>
         <div className="username-form">
           <input
             className="username-input"

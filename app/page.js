@@ -188,6 +188,9 @@ export default function Home() {
         )}
 
         <main className="chat-main">
+          <h1 style={{ position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', borderWidth: 0 }}>
+            FluxChat by Panarwala — Real-Time Messaging App
+          </h1>
           {isJoiningRoom && !currentRoom ? (
             <MessageList messages={[]} username={username} isLoading />
           ) : !currentRoom ? (
