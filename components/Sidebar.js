@@ -49,6 +49,11 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, avata
 
   return (
     <aside className="sidebar">
+      <div className="sidebar-brand" style={{ padding: '12px 16px 8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#f3f4f6', letterSpacing: '-0.01em' }}>
+          FluxChat <span style={{ fontSize: '0.65rem', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>by Panarwala</span>
+        </h2>
+      </div>
       <div className="sidebar-header">
         <div className="user-badge">
           <label className="profile-avatar" title="Change profile picture">
