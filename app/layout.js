@@ -29,7 +29,7 @@ export const metadata = {
   icons: {
     icon: '/icon.svg',
     shortcut: '/icon.svg',
-    apple: '/icon.svg',
+    apple: '/apple-touch-icon.png',
   },
   openGraph: {
     title: 'FluxChat by Panarwala — Real-Time Offline-First Messaging App',
