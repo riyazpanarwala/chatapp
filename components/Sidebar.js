@@ -49,40 +49,81 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, avata
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand" style={{ padding: '12px 16px 8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#f3f4f6', letterSpacing: '-0.01em' }}>
-          FluxChat <span style={{ fontSize: '0.65rem', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>by Panarwala</span>
-        </h2>
+      <div className="sidebar-brand">
+        <div className="brand-logo-wrap">
+          <div className="brand-icon-gem">
+            <span className="brand-gem-inner" />
+          </div>
+          <div className="brand-text-col">
+            <h2 className="brand-title">
+              FluxChat
+            </h2>
+            <span className="brand-badge">BY PANARWALA</span>
+          </div>
+        </div>
       </div>
-      <div className="sidebar-header">
+
+      <div className="sidebar-profile-card">
         <div className="user-badge">
-          <label className="profile-avatar" title="Change profile picture">
-            {avatar ? <img src={avatar} alt="" /> : username?.[0]?.toUpperCase()}
-            <input type="file" accept="image/*" onChange={handleAvatar} hidden />
-          </label>
-          <div className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
-          <span className="username-label">{username || 'Anonymous'}</span>
+          <div className="avatar-wrapper">
+            <label className="profile-avatar" title="Change profile picture">
+              {avatar ? <img src={avatar} alt="" /> : username?.[0]?.toUpperCase()}
+              <input type="file" accept="image/*" onChange={handleAvatar} hidden />
+            </label>
+            <div className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
+          </div>
+          <div className="user-details">
+            <span className="username-label">{username || 'Anonymous'}</span>
+            <span className={`user-status-caption ${isOnline ? 'online' : 'offline'}`}>
+              {isOnline ? 'Online' : 'Offline'}
+            </span>
+          </div>
         </div>
         {currentRoom && (
-          <button onClick={onLeaveRoom} className="leave-btn" title="Leave Room">
-            <XIcon size={13} />
+          <button onClick={onLeaveRoom} className="leave-btn" title="Leave Room" aria-label="Leave Room">
+            <XIcon size={14} />
           </button>
         )}
       </div>
 
-      <div className="sidebar-tabs">
-        <button className={`tab ${view === 'rooms' ? 'active' : ''}`} onClick={() => setView('rooms')}>Rooms</button>
-        {currentRoom && (
-          <button className={`tab ${view === 'users' ? 'active' : ''}`} onClick={() => setView('users')}>
-            Users <span className="badge">{roomUsers.length}</span>
+      <div className="sidebar-tabs-container">
+        <div className="sidebar-segmented-tabs" role="tablist">
+          <button
+            role="tab"
+            aria-selected={view === 'rooms'}
+            className={`segmented-tab ${view === 'rooms' ? 'active' : ''}`}
+            onClick={() => setView('rooms')}
+          >
+            Rooms
           </button>
-        )}
-        <button className={`tab ${view === 'dms' ? 'active' : ''}`} onClick={() => setView('dms')}>
-          DMs {dmList.length > 0 && <span className="badge">{dmList.length}</span>}
-        </button>
-        <button className={`tab ${view === 'create' ? 'active' : ''}`} onClick={() => setView('create')} title="Create room" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <PlusIcon size={15} />
-        </button>
+          {currentRoom && (
+            <button
+              role="tab"
+              aria-selected={view === 'users'}
+              className={`segmented-tab ${view === 'users' ? 'active' : ''}`}
+              onClick={() => setView('users')}
+            >
+              Users <span className="tab-pill-count">{roomUsers.length}</span>
+            </button>
+          )}
+          <button
+            role="tab"
+            aria-selected={view === 'dms'}
+            className={`segmented-tab ${view === 'dms' ? 'active' : ''}`}
+            onClick={() => setView('dms')}
+          >
+            DMs {dmList.length > 0 && <span className="tab-pill-count">{dmList.length}</span>}
+          </button>
+          <button
+            role="tab"
+            aria-selected={view === 'create'}
+            className={`segmented-tab plus-tab ${view === 'create' ? 'active' : ''}`}
+            onClick={() => setView('create')}
+            title="Create room"
+          >
+            <PlusIcon size={13} />
+          </button>
+        </div>
       </div>
 
       <div className="sidebar-body">

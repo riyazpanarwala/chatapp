@@ -7,7 +7,7 @@ import UsernameScreen from '../components/UsernameScreen';
 import GlobalSearch from '../components/GlobalSearch';
 import RoomSettings from '../components/RoomSettings';
 import { useState, useEffect, useRef } from 'react';
-import { MessageIcon, MailIcon, SearchIcon, BellIcon, XIcon } from '../lib/icons';
+import { MessageIcon, MailIcon, SearchIcon, BellIcon, XIcon, SettingsIcon, GlobalSearchIcon } from '../lib/icons';
 
 const NOTIFICATION_TTL_MS = 5000;
 
@@ -205,16 +205,22 @@ export default function Home() {
               {/* Chat header */}
               <div className="chat-header">
                 <div className="chat-header-info">
-                  <span className="chat-room-name" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {currentRoom.isDM ? <MailIcon size={16} /> : <MessageIcon size={16} />} {currentRoom.name}
-                  </span>
-                  <span className="chat-room-meta">
-                    {roomUsers.filter(u => u.online).length} online · {roomUsers.length} members
-                  </span>
+                  <div className="chat-header-title-row">
+                    <span className="chat-room-name">
+                      <span className="chat-room-type-icon">
+                        {currentRoom.isDM ? <MailIcon size={16} /> : <span className="channel-hash">#</span>}
+                      </span>
+                      {currentRoom.name}
+                    </span>
+                    <span className="chat-room-badge">
+                      <span className="status-dot-sm online" />
+                      {roomUsers.filter(u => u.online).length} online · {roomUsers.length} total
+                    </span>
+                  </div>
                   {currentRoom.description && <span className="chat-room-description">{currentRoom.description}</span>}
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="chat-header-actions">
                   {typingUsers.length > 0 && (
                     <div className="typing-bar">
                       <span className="typing-dots"><span /><span /><span /></span>
@@ -227,13 +233,16 @@ export default function Home() {
                     className={`icon-btn ${showSearch ? 'active-btn' : ''}`}
                     title="Search messages"
                     onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(''); }}
-                    style={{ marginLeft: 8 }}
                   >
                     <SearchIcon size={16} />
                   </button>
-                  <button className="icon-btn" title="Search everywhere" onClick={() => setShowGlobalSearch(true)}>⌕</button>
+                  <button className="icon-btn" title="Search everywhere" onClick={() => setShowGlobalSearch(true)}>
+                    <GlobalSearchIcon size={16} />
+                  </button>
                   {!currentRoom.isDM && ['owner', 'admin', 'mod'].includes(currentRoom.role) && (
-                    <button className="icon-btn" title="Room management" onClick={() => setShowRoomSettings(true)}>⚙</button>
+                    <button className="icon-btn" title="Room management" onClick={() => setShowRoomSettings(true)}>
+                      <SettingsIcon size={16} />
+                    </button>
                   )}
                 </div>
               </div>
