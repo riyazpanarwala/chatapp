@@ -23,7 +23,7 @@ export default function UsernameScreen({ onSetUsername }) {
         <div className="feature-chips-row">
           <span className="feature-chip">⚡ Real-Time</span>
           <span className="feature-chip">🛡️ Offline-First</span>
-          <span className="feature-chip">🔒 End-to-End</span>
+          <span className="feature-chip">💬 Instant Sync</span>
         </div>
         <div className="username-form">
           <div className="username-input-wrapper">
@@ -45,7 +45,7 @@ export default function UsernameScreen({ onSetUsername }) {
             Launch Experience →
           </button>
         </div>
-        <p className="username-hint">2–24 characters · Stored locally & securely</p>
+        <p className="username-hint">2–24 characters · Saved to local browser storage</p>
       </div>
     </div>
   );

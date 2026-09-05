@@ -87,10 +87,9 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, avata
       </div>
 
       <div className="sidebar-tabs-container">
-        <div className="sidebar-segmented-tabs" role="tablist">
+        <div className="sidebar-segmented-tabs">
           <button
-            role="tab"
-            aria-selected={view === 'rooms'}
+            type="button"
             className={`segmented-tab ${view === 'rooms' ? 'active' : ''}`}
             onClick={() => setView('rooms')}
           >
@@ -98,8 +97,7 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, avata
           </button>
           {currentRoom && (
             <button
-              role="tab"
-              aria-selected={view === 'users'}
+              type="button"
               className={`segmented-tab ${view === 'users' ? 'active' : ''}`}
               onClick={() => setView('users')}
             >
@@ -107,19 +105,18 @@ export default function Sidebar({ rooms, currentRoom, roomUsers, username, avata
             </button>
           )}
           <button
-            role="tab"
-            aria-selected={view === 'dms'}
+            type="button"
             className={`segmented-tab ${view === 'dms' ? 'active' : ''}`}
             onClick={() => setView('dms')}
           >
             DMs {dmList.length > 0 && <span className="tab-pill-count">{dmList.length}</span>}
           </button>
           <button
-            role="tab"
-            aria-selected={view === 'create'}
+            type="button"
             className={`segmented-tab plus-tab ${view === 'create' ? 'active' : ''}`}
             onClick={() => setView('create')}
             title="Create room"
+            aria-label="Create room"
           >
             <PlusIcon size={13} />
           </button>

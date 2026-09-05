@@ -580,7 +580,8 @@ html, body {
   transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   flex-shrink: 0;
 }
-.msg-wrapper:hover .msg-actions { opacity: 1; pointer-events: all; }
+.msg-wrapper:hover .msg-actions,
+.msg-wrapper:focus-within .msg-actions { opacity: 1; pointer-events: all; }
 .actions-self { order: -1; }
 .actions-other { order: 1; }
 .msg-action-btn {
@@ -959,7 +960,12 @@ html, body {
 .edit-history-item p { font-size: 13.5px; color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; line-height: 1.5; }
 
 /* Global Search & Room Settings */
-.global-search-modal, .room-settings-modal { width: min(680px, calc(100vw - 28px)); max-height: min(760px, calc(100vh - 40px)); overflow: auto; }
+.global-search-modal, .room-settings-modal {
+  width: min(680px, calc(100vw - 28px));
+  max-width: min(680px, calc(100vw - 28px));
+  max-height: min(760px, calc(100vh - 40px));
+  overflow: auto;
+}
 .global-results { display: grid; gap: 6px; max-height: 500px; overflow: auto; margin-top: 12px; }
 .global-result {
   border: 1px solid var(--border); background: rgba(255, 255, 255, 0.02); color: var(--text);
