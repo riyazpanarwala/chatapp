@@ -190,8 +190,13 @@ html, body {
 
 /* Status Indicator Dots */
 .status-dot {
-  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; position: absolute;
-  bottom: -1px; right: -1px; border: 1.5px solid var(--bg);
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block;
+}
+.avatar-wrapper .status-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  border: 1.5px solid var(--bg);
 }
 .status-dot.online {
   background: var(--volt);
