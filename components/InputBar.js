@@ -286,21 +286,37 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
         </div>
       )}
 
-      <div className="input-bar">
-        <button
-          ref={emojiToggleRef}
-          className="icon-btn"
-          onClick={toggleEmojiPicker}
-          title="Emoji"
-          aria-label="Choose an emoji"
-          aria-expanded={showEmoji}
-          aria-controls="emoji-picker-popup"
-          aria-haspopup="dialog"
-        >
-          <SmileIcon size={17} />
-        </button>
+      <div className="input-bar composer-island">
+        {/* Left tools */}
+        <div className="composer-tools-left">
+          <button
+            ref={emojiToggleRef}
+            className="composer-icon-btn"
+            onClick={toggleEmojiPicker}
+            title="Emoji"
+            aria-label="Choose an emoji"
+            aria-expanded={showEmoji}
+            aria-controls="emoji-picker-popup"
+            aria-haspopup="dialog"
+          >
+            <SmileIcon size={18} />
+          </button>
 
-        <div className="input-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+          />
+          <button className="composer-icon-btn" onClick={() => fileInputRef.current?.click()} title="Attach file">
+            <PaperclipIcon size={18} />
+          </button>
+        </div>
+
+        {/* Center input */}
+        <div className="input-wrap composer-input-wrap">
           {isRecording ? (
             <div className="recording-indicator">
               <span className="rec-dot" />
@@ -324,42 +340,35 @@ export default function InputBar({ currentRoom, username, roomUsers, onSendMessa
           )}
         </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.csv,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
-          onChange={handleFileChange}
-          style={{ display: 'none' }}
-        />
-        <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Attach file">
-          <PaperclipIcon size={17} />
-        </button>
-        <button className="icon-btn" onClick={isRecording ? stopRecording : startRecording} title="Voice message">
-          {isRecording ? <StopIcon size={16} /> : <MicIcon size={17} />}
-        </button>
-        <button className="icon-btn" onClick={takeScreenshot} title="Share screenshot">
-          <MonitorIcon size={17} />
-        </button>
+        {/* Right tools */}
+        <div className="composer-tools-right">
+          <button className="composer-icon-btn" onClick={isRecording ? stopRecording : startRecording} title="Voice message">
+            {isRecording ? <StopIcon size={16} /> : <MicIcon size={17} />}
+          </button>
+          <button className="composer-icon-btn" onClick={takeScreenshot} title="Share screenshot">
+            <MonitorIcon size={17} />
+          </button>
 
-        {/* ── Video Call Button ── */}
-        <button
-          className={`icon-btn video-call-btn ${isStartingCall ? 'calling' : ''}`}
-          onClick={startVideoCall}
-          disabled={disabled || isStartingCall}
-          title="Start video call"
-        >
-          {isStartingCall ? <ClockIcon size={17} /> : <VideoIcon size={17} />}
-        </button>
+          {/* Video Call Button */}
+          <button
+            className={`composer-icon-btn video-call-btn ${isStartingCall ? 'calling' : ''}`}
+            onClick={startVideoCall}
+            disabled={disabled || isStartingCall}
+            title="Start video call"
+          >
+            {isStartingCall ? <ClockIcon size={17} /> : <VideoIcon size={17} />}
+          </button>
 
-        <button
-          className={`send-btn ${text.trim() ? 'active' : ''}`}
-          onClick={send}
-          disabled={!text.trim() || disabled}
-          title="Send"
-        >
-          <SendIcon size={16} />
-        </button>
+          <button
+            className={`send-btn ${text.trim() ? 'active' : ''}`}
+            onClick={send}
+            disabled={!text.trim() || disabled}
+            title="Send message"
+            aria-label="Send message"
+          >
+            <SendIcon size={15} />
+          </button>
+        </div>
       </div>
     </div>
   );
